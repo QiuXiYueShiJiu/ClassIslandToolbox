@@ -88,6 +88,33 @@ public class RevealWindow : Window
 
     private static RevealWindow? _instance;
 
+    /// <summary>
+    /// 窗口本身的外观。跟内容无关，单独放一处。
+    /// </summary>
+    /// <remarks>
+    /// 三组设置分别对应三件事：<b>无形</b>（无边框、全透明）、
+    /// <b>不打扰</b>（置顶但不抢焦点、不进任务栏、不可缩放）、
+    /// <b>不拦截</b>（点击穿透）。放在一起看，比散在构造函数里清楚。
+    /// </remarks>
+    private void ConfigureWindow()
+    {
+        // 无形：云外那圈要真的是什么都没有，不能有一层窗口底。
+        SystemDecorations = SystemDecorations.None;
+        TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
+        Background = null;
+        SizeToContent = SizeToContent.WidthAndHeight;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+        // 不打扰：盖在课件上，但绝不把老师的操作打断。
+        Topmost = true;
+        ShowActivated = false;
+        ShowInTaskbar = false;
+        CanResize = false;
+
+        // 不拦截：这东西只是给人看的，不该吃掉任何点击。
+        IsHitTestVisible = false;
+    }
+
     private readonly TextBlock _lead;
     private readonly TextBlock _nameText;
     private readonly StackPanel _lines;
@@ -128,17 +155,7 @@ public class RevealWindow : Window
 
     private RevealWindow(double fontSize, TimeSpan hold)
     {
-        SystemDecorations = SystemDecorations.None;
-        Background = null;
-        TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
-        ShowInTaskbar = false;
-        Topmost = true;
-        CanResize = false;
-        ShowActivated = false;
-        // 窗口按云的轮廓自适应，居中显示。不铺满屏幕，才不会挡住悬浮钮。
-        SizeToContent = SizeToContent.WidthAndHeight;
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        IsHitTestVisible = false;
+        ConfigureWindow();
 
         // 第一行「有请——」：小字、灰色、靠左。
         // 靠左是刻意的——它是一句引子，跟下面居中的名字拉开，看着才像"念到名字"。

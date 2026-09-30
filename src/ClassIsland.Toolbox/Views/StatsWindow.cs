@@ -307,28 +307,48 @@ public sealed class StatsWindow : Window
     };
 
     /// <summary>往指定列放一段文字。</summary>
+    /// <summary>明细表里数字列的左边距与宽度。位数变了整列才不会左右跳。</summary>
+    private const double CellGap = 10;
+
+    private const double CountColumnWidth = 56;
+
+    private const double RatioColumnWidth = 60;
+
+    /// <summary>明细表里正文的字号。</summary>
+    private const double CellFontSize = 12;
+
     private static void AddText(Grid row, string text, int column, double opacity,
         FontWeight weight = default, HorizontalAlignment align = HorizontalAlignment.Left)
     {
-        var block = new TextBlock
+        var cell = new TextBlock
         {
             Text = text,
-            FontSize = 12,
+            FontSize = CellFontSize,
             Opacity = opacity,
             FontWeight = weight == default ? FontWeight.Normal : weight,
             HorizontalAlignment = align,
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        // 前两列是色块和长条，本身有位置；后面几列是数字，
-        // 统一留左边距并给个最小宽度——不给的话位数一变整列就会左右跳。
-        if (column > 1)
+        ApplyCellMetrics(cell, column);
+        row.Children.Add(InColumn(cell, column));
+    }
+
+    /// <summary>
+    /// 数字列的留白和最小宽度。
+    /// </summary>
+    /// <remarks>
+    /// 前两列是色块和长条，自己带位置，不需要额外左边距。
+    /// </remarks>
+    private static void ApplyCellMetrics(TextBlock cell, int column)
+    {
+        if (column <= 1)
         {
-            block.Margin = new Thickness(10, 0, 0, 0);
-            block.MinWidth = column == 2 ? 56 : 60;
+            return;
         }
 
-        row.Children.Add(InColumn(block, column));
+        cell.Margin = new Thickness(CellGap, 0, 0, 0);
+        cell.MinWidth = column == 2 ? CountColumnWidth : RatioColumnWidth;
     }
 
     /// <summary>明细表的一行：色块、姓名长条、次数、占比、本轮状态。</summary>
