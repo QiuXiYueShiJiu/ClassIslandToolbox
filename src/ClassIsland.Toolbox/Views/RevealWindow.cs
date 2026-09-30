@@ -244,27 +244,50 @@ public class RevealWindow : Window
     }
 
     /// <summary>
-    /// 把窗口摆到当前屏幕正中。名字长短不同云的宽度也不同，所以尺寸一变就要重摆。
+    /// 把窗口摆到当前屏幕正中。
     /// </summary>
+    /// <remarks>
+    /// 名字长短不同，云的宽度也不同，所以尺寸一变就得重摆一次（<c>SizeChanged</c> 里再调）。
+    /// </remarks>
     private void CenterOnScreen()
+    {
+        if (ResolveTargetOrigin() is not { } origin)
+        {
+            return;
+        }
+
+        Position = origin;
+    }
+
+    /// <summary>
+    /// 算出窗口左上角该落在哪个物理像素位置。拿不到屏幕信息就返回 <c>null</c>。
+    /// </summary>
+    /// <remarks>
+    /// <c>Screen.Bounds</c> 是<b>物理</b>像素，窗口的 <c>Bounds</c> 是<b>逻辑</b>像素，
+    /// 两个口径不一样，必须按缩放比换算——高分屏上不换算会只盖住屏幕的一部分。
+    /// 屏幕原点也未必是 (0,0)：多显示器时副屏带着自己的偏移，所以要拿它的 X/Y 打底。
+    /// </remarks>
+    private PixelPoint? ResolveTargetOrigin()
     {
         var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
         if (screen is null)
         {
-            return;
+            return null;
         }
 
-        var scaling = screen.Scaling <= 0 ? 1.0 : screen.Scaling;
-        var width = (int)Math.Ceiling(Bounds.Width * scaling);
-        var height = (int)Math.Ceiling(Bounds.Height * scaling);
+        var scale = screen.Scaling > 0 ? screen.Scaling : 1.0;
+        var width = (int)Math.Ceiling(Bounds.Width * scale);
+        var height = (int)Math.Ceiling(Bounds.Height * scale);
+
         if (width <= 0 || height <= 0)
         {
-            return;
+            return null;
         }
 
-        Position = new PixelPoint(
-            screen.Bounds.X + (screen.Bounds.Width - width) / 2,
-            screen.Bounds.Y + (screen.Bounds.Height - height) / 2);
+        var area = screen.Bounds;
+        return new PixelPoint(
+            area.X + (area.Width - width) / 2,
+            area.Y + (area.Height - height) / 2);
     }
 
     private void FadeOutAndClose()
@@ -276,21 +299,32 @@ public class RevealWindow : Window
 
         _closing = true;
         _closeTimer.Stop();
+        PlayExitAnimation();
+
+        // 动画是异步的，得等它跑完再真的关窗口——立刻 Close 会把退场吃掉，
+        // 表现就是"啪"地消失而不是淡出。
+        var fade = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
+        fade.Tick += (_, _) => FinishClose(fade);
+        fade.Start();
+    }
+
+    /// <summary>退场动画：缩小一点、透明度归零。</summary>
+    private void PlayExitAnimation()
+    {
         _stage.Opacity = 0;
         _stage.RenderTransform = TransformOperations.Parse("scale(0.96)");
+    }
 
-        var fade = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
-        fade.Tick += (_, _) =>
+    private void FinishClose(DispatcherTimer fade)
+    {
+        fade.Stop();
+        _topmost?.Dispose();
+
+        if (ReferenceEquals(_instance, this))
         {
-            fade.Stop();
-            _topmost?.Dispose();
-            if (ReferenceEquals(_instance, this))
-            {
-                _instance = null;
-            }
+            _instance = null;
+        }
 
-            Close();
-        };
-        fade.Start();
+        Close();
     }
 }
