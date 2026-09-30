@@ -1,3 +1,4 @@
+// 教学助手 v1.0.0：ClassIsland 置顶工具条插件
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -33,11 +34,13 @@ public sealed class StatsWindow : Window
 {
     private static StatsWindow? _instance;
 
+    // ---- 外面传进来的依赖 ----
     private readonly PickSettings _settings;
     private readonly RosterService _roster;
     private readonly PickStats _stats;
     private readonly Action _persist;
 
+    // ---- 界面零件。顺序按视觉从上到下：图、图下三行文字、右栏表、底栏按钮 ----
     private readonly PieChartControl _chart = new();
     private readonly TextBlock _emptyHint;
     private readonly TextBlock _headline = new();
@@ -45,7 +48,11 @@ public sealed class StatsWindow : Window
     private readonly TextBlock _roundLine = new();
     private readonly StackPanel _legend = new();
     private readonly Button _clearButton;
+
+    // ---- 计时与状态 ----
     private readonly DispatcherTimer _refreshTimer;
+
+    private DispatcherTimer? _confirmTimer;
 
     /// <summary>「清除统计」的二次确认状态。</summary>
     private bool _confirmingClear;
@@ -53,7 +60,10 @@ public sealed class StatsWindow : Window
     /// <summary>上一次刷新时的数据指纹，用来跳过没必要的重画。</summary>
     private (int TotalPicks, int Rounds, int Drawn, int RosterCount, string? LastPicked)? _lastSignature;
 
-    private DispatcherTimer? _confirmTimer;
+    /// <summary>「清除统计」的二次确认状态。</summary>
+
+    /// <summary>上一次刷新时的数据指纹，用来跳过没必要的重画。</summary>
+
 
     /// <summary>
     /// 打开统计窗口。已经开着就把它提到前面并刷新。
@@ -615,6 +625,12 @@ public sealed class StatsWindow : Window
     /// 这是个不可逆操作，误触的代价是一学期攒下来的记录，所以要点两次：
     /// 第一次只是「上膛」，按钮文字变成确认，五秒内不再点就自己复原。
     /// </remarks>
+    /// <summary>
+    /// 「清除统计」被点了。
+    /// </summary>
+    /// <remarks>
+    /// 这是个不可逆操作，误触的代价是一学期攒下来的记录，所以要点两次。
+    /// </remarks>
     private void OnClearClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (!_confirmingClear)
@@ -643,11 +659,20 @@ public sealed class StatsWindow : Window
         _confirmTimer.Start();
     }
 
-    /// <summary>收枪：恢复按钮文案和状态。</summary>
+    /// <summary>
+    /// 收枪：状态、计时器、按钮文案一起复原。
+    /// </summary>
+    /// <remarks>
+    /// 计时器<b>要置空</b>，不只是 Stop：不置空的话下次上膛还会去 Stop 一个已经废弃的实例，
+    /// 而且它会一直握着窗口的引用。
+    /// </remarks>
     private void DisarmClear()
     {
         _confirmingClear = false;
-        ResetClearButton();
+        _clearButton.Content = "清除统计";
+
+        _confirmTimer?.Stop();
+        _confirmTimer = null;
     }
 
     /// <summary>真的清：历史、本轮进度、上一次抽中的人，一并抹掉并立刻落盘。</summary>
@@ -662,20 +687,20 @@ public sealed class StatsWindow : Window
         _lastSignature = null;
     }
 
-    private void ResetClearButton()
-    {
-        _confirmingClear = false;
-        _confirmTimer?.Stop();
-        _confirmTimer = null;
-        _clearButton.Content = "清除统计";
-    }
-
+    /// <summary>上膛：换成确认文案，并起一个五秒的自动复原计时。</summary>
     #endregion
 
     protected override void OnClosed(EventArgs e)
     {
+        // 窗口关了就把计时器停掉：它们握着窗口的引用，不停会一直空跑。
+        StopTimers();
+        base.OnClosed(e);
+    }
+
+    /// <summary>把刷新和确认两个计时器都停掉。</summary>
+    private void StopTimers()
+    {
         _refreshTimer.Stop();
         _confirmTimer?.Stop();
-        base.OnClosed(e);
     }
 }

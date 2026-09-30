@@ -1,3 +1,4 @@
+// 教学助手 v1.0.0：ClassIsland 置顶工具条插件
 using System;
 
 namespace ClassIsland.Toolbox.Views;

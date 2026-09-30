@@ -1,3 +1,4 @@
+// 教学助手 v1.0.0：ClassIsland 置顶工具条插件
 using System;
 using Avalonia;
 using Avalonia.Animation;
@@ -245,32 +246,51 @@ public class RevealWindow : Window
     private void Bump(TimeSpan hold)
     {
         _closeTimer.Stop();
+
+        // 缩一下再弹回：给出「换了一个」的反馈，比原地换文字更容易被察觉。
         _stage.RenderTransform = TransformOperations.Parse("scale(0.94)");
         Dispatcher.UIThread.Post(
             () => _stage.RenderTransform = TransformOperations.Parse("scale(1)"),
             DispatcherPriority.Render);
 
         _stage.Opacity = 1;
+        RestartCountdown(hold);
+        _topmost?.Reassert();
+    }
+
+    /// <summary>重新开始停留计时。</summary>
+    private void RestartCountdown(TimeSpan hold)
+    {
         _closeTimer.Interval = hold;
         _closeTimer.Start();
-        _topmost?.Reassert();
     }
 
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
 
-        CenterOnScreen();
-        SizeChanged += (_, _) => CenterOnScreen();
+        StartFollowingScreen();
+        EnsureTopmost();
 
-        _topmost = new TopmostEnforcer(this, TimeSpan.FromMilliseconds(400));
-        _topmost.Attach();
-
-        // 入场：设一次目标值，剩下的交给上面挂好的过渡。
+        // 入场：设一次目标值，剩下的交给挂好的过渡。
         _stage.Opacity = 1;
         _stage.RenderTransform = TransformOperations.Parse("scale(1)");
 
         _closeTimer.Start();
+    }
+
+    /// <summary>居中显示；名字长短会改变云的大小，所以尺寸一变就重摆。</summary>
+    private void StartFollowingScreen()
+    {
+        CenterOnScreen();
+        SizeChanged += (_, _) => CenterOnScreen();
+    }
+
+    /// <summary>起一个置顶维持器。间隔比工具条短，因为它只活几秒。</summary>
+    private void EnsureTopmost()
+    {
+        _topmost = new TopmostEnforcer(this, TimeSpan.FromMilliseconds(400));
+        _topmost.Attach();
     }
 
     /// <summary>
