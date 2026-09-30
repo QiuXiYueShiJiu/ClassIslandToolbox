@@ -1,4 +1,4 @@
-// 教学助手 v1.0.0：ClassIsland 置顶工具条插件
+// 教学助手 v1.0.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 
 namespace ClassIsland.Toolbox.Views;
