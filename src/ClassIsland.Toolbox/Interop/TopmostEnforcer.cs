@@ -1,4 +1,4 @@
-// 教学助手 v1.0.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.1.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.Runtime.InteropServices;
 using Avalonia.Controls;
@@ -35,8 +35,14 @@ public sealed partial class TopmostEnforcer : IDisposable
     /// <summary>不接受激活：点到它也不会抢走当前窗口的焦点。</summary>
     private const int StyleNoActivate = 0x08000000;
 
-    /// <summary>点击穿透：鼠标消息直接放给下面的窗口。</summary>
+    /// <summary>点击穿透：鼠标消息直接放给下面的窗口。<b>必须和 <see cref="StyleLayered"/> 同时使用。</b></summary>
     private const int StyleTransparent = 0x00000020;
+
+    /// <summary>分层窗口。加了它，<see cref="StyleTransparent"/> 才会参与命中测试。</summary>
+    private const int StyleLayered = 0x00080000;
+
+    /// <summary><c>SetLayeredWindowAttributes</c> 的「按 alpha 值合成」标志。</summary>
+    private const uint LwaAlpha = 0x00000002;
 
     private const uint FlagNoSize = 0x0001;
     private const uint FlagNoMove = 0x0002;
@@ -145,19 +151,23 @@ public sealed partial class TopmostEnforcer : IDisposable
 
         var style = GetWindowLong(handle, IndexExStyle);
 
-        if (clickThrough)
+        if (!clickThrough)
         {
-            // 三个一起加：穿透 + 不抢焦点 + 不进 Alt+Tab。
-            // 少加「不抢焦点」的话，点穿透区域会把焦点从课件窗口抢走。
-            style |= StyleTransparent | StyleNoActivate | StyleToolWindow;
-        }
-        else
-        {
-            // 只摘掉穿透。另外两个是窗口的固有属性，退出批注之后也该留着。
-            style &= ~StyleTransparent;
+            // 只摘掉穿透，另外两个标志是窗口的固有属性，下次进来还要用。
+            SetWindowLong(handle, IndexExStyle, style & ~StyleTransparent);
+            return;
         }
 
+        // **必须连 WS_EX_LAYERED 一起加。**
+        // WS_EX_TRANSPARENT 单独存在时只影响绘制顺序，**不参与命中测试**——
+        // 窗口照样把鼠标消息全收下，底下什么都点不到，表现就是「退出批注后鼠标失灵」。
+        // 只有分层窗口（LAYERED）上的 TRANSPARENT 才会让点击穿过去。
+        style |= StyleTransparent | StyleNoActivate | StyleToolWindow | StyleLayered;
         SetWindowLong(handle, IndexExStyle, style);
+
+        // 补了这一位之后窗口会被当成分层窗口，必须显式声明不透明度，
+        // 否则默认整窗透明——那就从「挡住鼠标」变成「连画都看不见」了。
+        SetLayeredWindowAttributes(handle, 0, 255, LwaAlpha);
     }
 
     public void Dispose()
@@ -212,4 +222,9 @@ public sealed partial class TopmostEnforcer : IDisposable
 
     [LibraryImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
     private static partial int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    /// <summary>声明分层窗口的不透明度。255 = 完全不透明，视觉上毫无变化。</summary>
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetLayeredWindowAttributes(IntPtr hWnd, uint crKey, byte bAlpha, uint dwFlags);
 }

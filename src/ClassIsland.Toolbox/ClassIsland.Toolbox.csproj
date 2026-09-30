@@ -9,7 +9,7 @@
         <OutputType>Library</OutputType>
         <AssemblyName>ClassIsland.Toolbox</AssemblyName>
         <RootNamespace>ClassIsland.Toolbox</RootNamespace>
-        <Version>1.0.0.0</Version>
+        <Version>1.1.0.0</Version>
         <!-- 依赖一律用宿主已加载的那份，插件包里不能再带一份。 -->
         <GenerateDependencyFile>false</GenerateDependencyFile>
         <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>

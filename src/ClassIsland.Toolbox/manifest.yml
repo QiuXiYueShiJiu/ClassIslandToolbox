@@ -2,7 +2,7 @@ entranceAssembly: ClassIsland.Toolbox.dll
 name: 教学助手
 id: yueshijiu.toolbox
 description: ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式。常驻屏幕最顶层，一个云朵圆钮点开向两边展开。
-version: 1.0.0.0
+version: 1.1.0.0
 apiVersion: 2.0.0.0
 author: 秋夕月拾旧
 icon: icon.png
