@@ -41,11 +41,13 @@ public sealed class StatsWindow : Window
     private readonly Action _persist;
 
     // ---- 界面零件。顺序按视觉从上到下：图、图下三行文字、右栏表、底栏按钮 ----
-    private readonly PieChartControl _chart = new();
+    // 先文字后图形：这三行是常驻的，图和表是后填进去的。
     private readonly TextBlock _emptyHint;
     private readonly TextBlock _headline = new();
     private readonly TextBlock _fairness = new();
     private readonly TextBlock _roundLine = new();
+
+    private readonly PieChartControl _chart = new();
     private readonly StackPanel _legend = new();
     private readonly Button _clearButton;
 
