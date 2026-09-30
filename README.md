@@ -153,20 +153,18 @@ dotnet run --project tests/TbTest/TbTest.csproj -c Release
 
 ### 作者
 
-由 **秋夕月拾旧** 创作。
+秋夕月拾旧
 
 ### 关于 AI
 
-这个插件由 **DSH** 编写 —— 包括这份说明文档。代码在真实机器上编译、在无头 Avalonia 里跑过完整测试，但**没有在真机上做过长时间使用验证**。用在正式场合之前，建议自己先试一遍幸运抽签和批注。
+这个插件由 **DSH** 编写 —— 包括这份说明文档。代码在真实机器上编译、在无头 Avalonia 里跑过完整测试，但**没有在真机上做过长时间使用验证**。用在正式场合之前，建议自己先把幸运抽签和批注各试一遍。
 
-### 致谢
+### 参考
 
-这个项目由 **秋夕月拾旧** 独立完成。
-
-开发过程中参考过下面这些项目，在此致谢：
+开发过程中参考过下面这些项目：
 
 - **[ClassIsland](https://github.com/ClassIsland/ClassIsland)** —— 插件框架、宿主 API、`.cipx` 打包约定，以及官方插件模板与 `ExamplePlugin`。
-- **[RandomPicker](https://github.com/Gordonynh/RandomPicker)** —— 幸运抽签的抽选算法，以及统计窗口、中央大字窗口的实现思路，参考自这个项目。
+- **[RandomPicker](https://github.com/Gordonynh/RandomPicker)** —— 幸运抽签的抽选算法，以及统计窗口、中央大字窗口的实现思路。
 
 ### 许可
 
