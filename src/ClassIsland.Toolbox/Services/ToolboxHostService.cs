@@ -195,18 +195,18 @@ public class ToolboxHostService : IHostedService
         }
     }
 
-    private void Reveal(string text, bool isHint, string? note = null)
+    /// <summary>在屏幕中央的云上亮一行字。</summary>
+    /// <param name="text">要显示的内容。</param>
+    /// <param name="isHint">
+    /// 是不是提示语。提示用小一号的字——提示不该比抽到的名字还抢眼。
+    /// </param>
+    private void Reveal(string text, bool isHint)
     {
         RevealWindow.Show(
             text,
-            note,
             isHint ? _settings.RevealFontSize * 0.42 : _settings.RevealFontSize,
-            TimeSpan.FromSeconds(Math.Clamp(_settings.RevealSeconds, 0.5, 30)),
-            _window?.Accent ?? DefaultAccent);
+            TimeSpan.FromSeconds(Math.Clamp(_settings.RevealSeconds, 0.5, 30)));
     }
-
-    private static readonly Avalonia.Media.Color DefaultAccent =
-        Avalonia.Media.Color.FromRgb(0x5B, 0x8D, 0xEF);
 
     private void SendNotification(string name)
     {

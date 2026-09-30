@@ -5,7 +5,6 @@ using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
 using Avalonia.Media.Transformation;
 using Avalonia.Threading;
 using ClassIsland.Toolbox.Interop;
@@ -13,68 +12,78 @@ using ClassIsland.Toolbox.Interop;
 namespace ClassIsland.Toolbox.Views;
 
 /// <summary>
-/// 屏幕中央的大字弹窗。抽到谁就把名字亮在屏幕中间，停留几秒后自己淡出。
+/// 抽到人之后亮在屏幕中央的那朵云。
 /// </summary>
 /// <remarks>
+/// <b>整张卡片就是一朵云，没有别的背景。</b>窗口本身是透明的，云外那圈什么都没有，
+/// 所以看上去就是「一朵云飘在课件上」，而不是「一个窗口里画了朵云」。
+/// 云里只写名字，不写「幸运抽签结果」这类标签——抽到什么一眼就看得到，
+/// 再挂一行说明只是抢注意力。
+/// <para/>
 /// 两个关键设计：
 /// <list type="bullet">
-/// <item><b>窗口只有卡片那么大</b>，不铺满屏幕。早先版本是整屏窗口，结果它把悬浮钮盖住了，
+/// <item><b>窗口只有云那么大，不铺满屏幕。</b>早先版本是整屏窗口，结果它把悬浮钮盖住了，
 ///       连着抽人时第二下点的是它而不是钮，表现就是「点不动」。
-///       试过用 <c>WS_EX_TRANSPARENT</c> 让它穿透，但那个样式只在窗口同时是 LAYERED 时才对命中测试生效，
-///       而给 Avalonia 的透明窗口补 <c>WS_EX_LAYERED</c> 会打乱它自己的合成，窗口直接不显示。
-///       两条路都堵死，索性从根上解决：窗口不覆盖屏幕，就没有挡不挡的问题。</item>
-/// <item><b>单例复用</b>。再抽一次不新开窗口，直接换掉里面的名字并重置计时，
+///       试过用 <c>WS_EX_TRANSPARENT</c> 让它穿透，但那个样式只在窗口同时是 LAYERED 时
+///       才对命中测试生效，而给 Avalonia 的透明窗口补 <c>WS_EX_LAYERED</c> 会打乱它自己的合成，
+///       窗口直接不显示。两条路都堵死，索性从根上解决：窗口不覆盖屏幕，就没有挡不挡的问题。</item>
+/// <item><b>单例复用。</b>再抽一次不新开窗口，直接换掉里面的名字并重置计时，
 ///       避免连点时叠出一摞窗口。</item>
 /// </list>
 /// </remarks>
 public class RevealWindow : Window
 {
-    // 和工具条同一套「云朵 + 天空」：淡蓝描边、深蓝灰的字。
-    private static readonly Color SkyCardBorder = Color.FromRgb(0x93, 0xC1, 0xEB);
-    private static readonly Color SkyCardText = Color.FromRgb(0x33, 0x49, 0x5E);
-    private static readonly Color SkyCardTextSoft = Color.FromRgb(0x6E, 0x86, 0x9B);
+    // 和工具条同一套「云 + 天空」：淡蓝描边、深蓝灰的字。
+    private static readonly Color CloudBorder = Color.FromRgb(0x93, 0xC1, 0xEB);
+    private static readonly Color CloudFill = Color.FromArgb(0xFF, 0xFA, 0xFD, 0xFF);
+    private static readonly Color NameColor = Color.FromRgb(0x2B, 0x42, 0x57);
+
+    /// <summary>云面比名字大多少（倍数）。太小会显得字挤满整朵云。</summary>
+    private const double CloudPaddingX = 1.25;
+
+    private const double CloudPaddingTop = 1.30;
+
+    private const double CloudPaddingBottom = 0.80;
 
     private static RevealWindow? _instance;
 
     private readonly TextBlock _nameText;
-    private readonly TextBlock _caption;
-    private readonly StackPanel _content;
-    private readonly Border _card;
-    private readonly CloudBackdrop _backdrop;
+    private readonly CloudButtonSurface _cloud;
+    private readonly Panel _stage;
     private readonly DispatcherTimer _closeTimer;
     private TopmostEnforcer? _topmost;
     private bool _closing;
 
     /// <summary>
-    /// 显示一个名字。已经有窗口开着就复用它，否则新建。
+    /// 亮出一个名字。已经有窗口开着就复用它，否则新建。
     /// </summary>
-    public static void Show(string text, double fontSize, TimeSpan hold, Color accent) =>
-        Show(text, null, fontSize, hold, accent);
-
-    /// <summary>显示一个名字，下面可以再带一行小字说明。</summary>
-    public static void Show(string text, string? caption, double fontSize, TimeSpan hold, Color accent)
+    /// <param name="name">要显示的名字。</param>
+    /// <param name="fontSize">字号（逻辑像素）。云的大小是按它推出来的。</param>
+    /// <param name="hold">停留多久之后自己淡出。</param>
+    public static void Show(string name, double fontSize, TimeSpan hold)
     {
-        Ensure(hold, accent, fontSize).ShowText(text, caption, fontSize, hold, accent);
+        var window = Ensure(hold, fontSize);
+        window.ShowName(name, fontSize, hold);
     }
 
+    /// <summary>把当前开着的弹窗立刻收掉（比如插件停止时）。</summary>
+    public static void CloseCurrent() => _instance?.FadeOutAndClose();
+
     /// <summary>拿到可用的窗口实例：已经开着就复用，否则新建。</summary>
-    private static RevealWindow Ensure(TimeSpan hold, Color accent, double fontSize)
+    private static RevealWindow Ensure(TimeSpan hold, double fontSize)
     {
         if (_instance is { _closing: false } existing)
         {
             return existing;
         }
 
-        var window = new RevealWindow(string.Empty, fontSize, hold, accent);
+        var window = new RevealWindow(fontSize, hold);
         _instance = window;
         window.Show();
         return window;
     }
 
-    /// <summary>把当前开着的弹窗立刻收掉（比如插件停止时）。</summary>
-    public static void CloseCurrent() => _instance?.FadeOutAndClose();
-
-    private RevealWindow(string name, double fontSize, TimeSpan hold, Color accent)
+    private RevealWindow(double fontSize, TimeSpan hold)
     {
         SystemDecorations = SystemDecorations.None;
         Background = null;
@@ -83,68 +92,43 @@ public class RevealWindow : Window
         Topmost = true;
         CanResize = false;
         ShowActivated = false;
-        // 窗口按卡片大小自适应，居中显示。不铺满屏幕，才不会挡住悬浮钮。
+        // 窗口按云的轮廓自适应，居中显示。不铺满屏幕，才不会挡住悬浮钮。
         SizeToContent = SizeToContent.WidthAndHeight;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         IsHitTestVisible = false;
 
-        _caption = new TextBlock
-        {
-            FontSize = 20,
-            Foreground = new SolidColorBrush(SkyCardTextSoft),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            TextAlignment = TextAlignment.Center,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 12, 0, 0),
-            IsVisible = false
-        };
-
         _nameText = new TextBlock
         {
-            Text = name,
             FontSize = fontSize,
             FontWeight = FontWeight.SemiBold,
-            Foreground = new SolidColorBrush(SkyCardText),
+            Foreground = new SolidColorBrush(NameColor),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = TextAlignment.Center,
-            TextWrapping = TextWrapping.Wrap
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = Math.Max(280, fontSize * 4.6)
         };
 
-        _content = new StackPanel
+        // 整朵云就是一个控件，把名字压在上面。
+        // **留白加在名字上，不加在云上**：云是按自己的边界画的，
+        // 给它加 Padding 会把云面挤变形，而不是让名字往里缩。
+        _cloud = new CloudButtonSurface
+        {
+            Fill = CloudFill,
+            Stroke = CloudBorder,
+            StrokeThickness = Math.Max(2.0, fontSize * 0.022),
+            ShadowColor = Color.FromArgb(0x3A, 0x5F, 0x9E, 0xD8)
+        };
+
+        _stage = new Panel
         {
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { _nameText, _caption }
-        };
-
-        // 幸运抽签弹出的这张卡片也做成「云朵 + 天空」：一层天，飘两朵云，字压在云上。
-        // 不铺全屏遮罩——连着抽人时整屏一明一暗很累眼。
-        _backdrop = new CloudBackdrop
-        {
-            CornerRadius = fontSize * 0.18,
-            CloudOpacity = 0.8
-        };
-
-        // 内边距**不能挂在 Border 上**：Border 的 Padding 会把子元素一起缩进去，
-        // 而背景层也是子元素——结果卡片外圈一圈是没有天空的白边，看着就是"背景没铺满"。
-        // 改成把同样的留白加到内容上：背景铺满整张卡，字还是原来的位置。
-        _content.Margin = new Thickness(fontSize * 0.62, fontSize * 0.34);
-
-        _card = new Border
-        {
-            Background = null,
-            CornerRadius = new CornerRadius(fontSize * 0.18),
-            Padding = new Thickness(0),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            BorderBrush = new SolidColorBrush(SkyCardBorder),
-            BorderThickness = new Thickness(1.8),
-            Child = new Panel { Children = { _backdrop, _content } },
+            Children = { _cloud, _nameText },
             Opacity = 0,
             // 用 TransformOperations 而不是自己搭 ScaleTransform：
-            // 过渡挂在 Border（一个 Visual）上，有自己的时钟能正常跑；
-            // 单独的 ScaleTransform 不是 Visual，交给 Animation.RunAsync 会抛类型转换异常。
+            // 过渡挂在 Visual 上才有自己的时钟；单独的 ScaleTransform 不是 Visual，
+            // 交给 Animation.RunAsync 会抛类型转换异常。
             RenderTransform = TransformOperations.Parse("scale(0.92)"),
             RenderTransformOrigin = RelativePoint.Center,
             Transitions =
@@ -164,39 +148,40 @@ public class RevealWindow : Window
             ]
         };
 
-        Content = new Panel { Children = { _card } };
+        ApplyScale(fontSize);
+        Content = new Panel { Children = { _stage } };
 
         _closeTimer = new DispatcherTimer { Interval = hold };
         _closeTimer.Tick += (_, _) => FadeOutAndClose();
     }
 
-    /// <summary>复用当前窗口显示一个名字。</summary>
-    private void ShowText(string text, string? caption, double fontSize, TimeSpan hold, Color accent)
-    {
-        _caption.IsVisible = !string.IsNullOrEmpty(caption);
-        _caption.Text = caption ?? string.Empty;
-        _caption.MaxWidth = Math.Max(240, fontSize * 5);
-        _nameText.IsVisible = true;
-        _nameText.Text = text;
-        _nameText.FontSize = fontSize;
+    /// <summary>按字号把云面撑到比名字大一圈。</summary>
+    private void ApplyScale(double fontSize) =>
+        _nameText.Margin = new Thickness(
+            fontSize * CloudPaddingX,
+            fontSize * CloudPaddingTop,
+            fontSize * CloudPaddingX,
+            fontSize * CloudPaddingBottom);
 
-        _card.CornerRadius = new CornerRadius(fontSize * 0.18);
-        _backdrop.CornerRadius = fontSize * 0.18;
-        _content.Margin = new Thickness(fontSize * 0.62, fontSize * 0.34);
-        Bump(hold, accent);
+    /// <summary>复用当前窗口显示一个名字。</summary>
+    private void ShowName(string name, double fontSize, TimeSpan hold)
+    {
+        _nameText.Text = name;
+        _nameText.FontSize = fontSize;
+        ApplyScale(fontSize);
+        Bump(hold);
     }
 
     /// <summary>缩一下再弹回来，给出「换了一个」的反馈，比原地换内容更容易察觉。</summary>
-    private void Bump(TimeSpan hold, Color accent)
+    private void Bump(TimeSpan hold)
     {
         _closeTimer.Stop();
-        _card.BorderBrush = new SolidColorBrush(SkyCardBorder);
-        _card.RenderTransform = TransformOperations.Parse("scale(0.94)");
+        _stage.RenderTransform = TransformOperations.Parse("scale(0.94)");
         Dispatcher.UIThread.Post(
-            () => _card.RenderTransform = TransformOperations.Parse("scale(1)"),
+            () => _stage.RenderTransform = TransformOperations.Parse("scale(1)"),
             DispatcherPriority.Render);
 
-        _card.Opacity = 1;
+        _stage.Opacity = 1;
         _closeTimer.Interval = hold;
         _closeTimer.Start();
         _topmost?.Reassert();
@@ -213,14 +198,14 @@ public class RevealWindow : Window
         _topmost.Attach();
 
         // 入场：设一次目标值，剩下的交给上面挂好的过渡。
-        _card.Opacity = 1;
-        _card.RenderTransform = TransformOperations.Parse("scale(1)");
+        _stage.Opacity = 1;
+        _stage.RenderTransform = TransformOperations.Parse("scale(1)");
 
         _closeTimer.Start();
     }
 
     /// <summary>
-    /// 把窗口摆到当前屏幕正中。内容换了大小会变，所以 SizeChanged 时要重新摆一次。
+    /// 把窗口摆到当前屏幕正中。名字长短不同云的宽度也不同，所以尺寸一变就要重摆。
     /// </summary>
     private void CenterOnScreen()
     {
@@ -252,8 +237,8 @@ public class RevealWindow : Window
 
         _closing = true;
         _closeTimer.Stop();
-        _card.Opacity = 0;
-        _card.RenderTransform = TransformOperations.Parse("scale(0.96)");
+        _stage.Opacity = 0;
+        _stage.RenderTransform = TransformOperations.Parse("scale(0.96)");
 
         var fade = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
         fade.Tick += (_, _) =>

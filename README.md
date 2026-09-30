@@ -161,12 +161,12 @@ dotnet run --project tests/TbTest/TbTest.csproj -c Release
 
 ### 致谢
 
-这个项目从里到外由 **秋夕月拾旧** 独立完成。**代码不依赖、不包含、也不分发任何其他插件或仓库**（`ClassIsland.Core`、`Avalonia` 是宿主与 UI 框架，通过 NuGet 引用，不属于插件）。
+这个项目由 **秋夕月拾旧** 独立完成。
 
 开发过程中参考过下面这些项目，在此致谢：
 
 - **[ClassIsland](https://github.com/ClassIsland/ClassIsland)** —— 插件框架、宿主 API、`.cipx` 打包约定，以及官方插件模板与 `ExamplePlugin`。
-- **[RandomPicker](https://github.com/Gordonynh/RandomPicker)** —— 幸运抽签的公平抽选思路参考。
+- **[RandomPicker](https://github.com/Gordonynh/RandomPicker)** —— 幸运抽签的抽选算法，以及统计窗口、中央大字窗口的实现思路，参考自这个项目。
 
 ### 许可
 

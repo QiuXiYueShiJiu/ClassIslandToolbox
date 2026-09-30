@@ -994,7 +994,7 @@ internal static class Program
     {
         try
         {
-            RevealWindow.Show("张三", "幸运抽签结果", 148, TimeSpan.FromSeconds(30), Colors.White);
+            RevealWindow.Show("张三", 148, TimeSpan.FromSeconds(30));
             Dispatcher.UIThread.RunJobs();
             Thread.Sleep(200);
             Dispatcher.UIThread.RunJobs();
@@ -1013,18 +1013,18 @@ internal static class Program
             Check(window.Bounds.Width > 100 && window.Bounds.Height > 60,
                 $"大字窗口有正常尺寸（{window.Bounds.Width:F0}x{window.Bounds.Height:F0}）");
 
-            // 背景必须铺满卡片。
-            // 这条曾经漏过：内边距挂在 Border 上，把作为子元素的背景层也一起缩了进去，
-            // 卡片外圈就空出一圈没有天空的白边——看着就是"背景渲染不全"。
+            // 云面要铺满窗口：窗口本身是透明的，云没铺满的话边上会空出一圈。
             {
-                var card = Field<Border>(window, "_card");
-                var backdrop = Field<CloudBackdrop>(window, "_backdrop");
-                Check(backdrop.Bounds.Width >= card.Bounds.Width - 4 &&
-                      backdrop.Bounds.Height >= card.Bounds.Height - 4,
-                    $"背景铺满卡片（背景 {backdrop.Bounds.Width:F0}x{backdrop.Bounds.Height:F0} / " +
-                    $"卡片 {card.Bounds.Width:F0}x{card.Bounds.Height:F0}）");
+                var stage = Field<Panel>(window, "_stage");
+                var cloud = Field<CloudButtonSurface>(window, "_cloud");
+
+                Check(cloud.Bounds.Width >= stage.Bounds.Width - 4 &&
+                      cloud.Bounds.Height >= stage.Bounds.Height - 4,
+                    $"云面铺满窗口（云 {cloud.Bounds.Width:F0}x{cloud.Bounds.Height:F0} / " +
+                    $"窗口 {stage.Bounds.Width:F0}x{stage.Bounds.Height:F0}）");
             }
-            Capture(window, "reveal.png", "幸运抽签大字窗口：云朵天空卡片");
+
+            Capture(window, "reveal.png", "幸运抽签结果：单朵云 + 人名");
 
             RevealWindow.CloseCurrent();
             Dispatcher.UIThread.RunJobs();
