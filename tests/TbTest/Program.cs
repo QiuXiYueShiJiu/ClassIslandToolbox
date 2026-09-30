@@ -509,7 +509,7 @@ internal static class Program
             Check(shown == expected,
                 $"关掉幸运抽签后只剩快捷方式和批注（显示 {shown} 条 / 期望 {expected} 条）");
             Check(leftPanel.Children.OfType<Border>().All(b => TextAt(b, 1)?.Text != "幸运抽签"),
-                "工具条上确实没有「幸运抽签」这颗按钮");
+                "工具条上确实没有「抽人」这颗按钮");
 
             var menuItems = InvokeResult<object[]>(window, "BuildMenuItems");
             var headers = menuItems.OfType<MenuItem>()

@@ -616,7 +616,7 @@ public class ToolboxWindow : Window
         {
             if (key == ToolboxSettings.LuckyDrawKey)
             {
-                all.Add(BuildIconButton("🙋", "幸运抽签", null, SkyBorderStrong, null,
+                all.Add(BuildIconButton("🙋", "抽人", null, SkyBorderStrong, null,
                     () => PickRequested?.Invoke(this, EventArgs.Empty)));
                 continue;
             }
