@@ -87,20 +87,11 @@ public sealed class StatsWindow : Window
         _stats = stats;
         _persist = persist;
 
-        Title = "幸运抽签统计";
-        Width = 940;
-        Height = 660;
-        MinWidth = 760;
-        MinHeight = 500;
-        CanResize = true;
-        ShowInTaskbar = true;
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        // 不置顶：它是被叫出来看一眼的，不该压住别的东西。
-        Topmost = false;
+        ConfigureWindow();
 
         _emptyHint = new TextBlock
         {
-            Text = "还没有抽取记录\n抽一次就出现了",
+            Text = "还没有抽签记录\n抽一次就出现了",
             TextAlignment = TextAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
@@ -111,7 +102,7 @@ public sealed class StatsWindow : Window
         _clearButton = new Button { Content = "清除统计" };
         _clearButton.Click += OnClearClicked;
 
-        Content = BuildLayout();
+        Content = ComposeLayout();
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _refreshTimer.Tick += (_, _) => Refresh();
@@ -119,139 +110,200 @@ public sealed class StatsWindow : Window
         Refresh();
     }
 
+    /// <summary>窗口本身的外观。跟内容无关，单独放一处。</summary>
+    private void ConfigureWindow()
+    {
+        Title = "幸运抽签统计";
+        Width = 940;
+        Height = 660;
+        MinWidth = 760;
+        MinHeight = 500;
+        CanResize = true;
+        ShowInTaskbar = true;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        // 不置顶：它是被叫出来看一眼的，不该压住别的东西。
+        Topmost = false;
+    }
+
     #region 界面搭建
 
-    private Control BuildLayout()
+    /// <summary>
+    /// 整体三行：标题、主区（占比图 + 明细表）、底栏。
+    /// </summary>
+    /// <remarks>
+    /// 拆成几个小方法而不是堆一个巨大的对象初始化器：布局改一处就得在几十行嵌套里找位置，
+    /// 而且哪块归哪块全靠缩进看。<b>每个方法只负责一块，改哪块进哪个方法。</b>
+    /// </remarks>
+    private Control ComposeLayout()
     {
-        var chartPanel = new Panel
+        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto") };
+
+        root.Children.Add(BuildTitleBlock());
+
+        var main = BuildMainArea();
+        Grid.SetRow(main, 1);
+        root.Children.Add(main);
+
+        var footer = BuildFooter();
+        Grid.SetRow(footer, 2);
+        root.Children.Add(footer);
+
+        return root;
+    }
+
+    private static Control BuildTitleBlock()
+    {
+        var block = new StackPanel
         {
-            Width = 380,
-            Height = 380,
-            Children = { _chart, _emptyHint }
+            Margin = new Thickness(20, 16, 20, 0),
+            Spacing = 4
         };
 
-        var chartSide = new StackPanel
+        block.Children.Add(new TextBlock
         {
-            Spacing = 14,
-            Width = 380,
-            Children =
-            {
-                new TextBlock
-                {
-                    Text = "被抽次数占比",
-                    FontSize = 15,
-                    FontWeight = FontWeight.SemiBold,
-                    HorizontalAlignment = HorizontalAlignment.Center
-                },
-                chartPanel,
-                _headline,
-                _fairness,
-                _roundLine
-            }
+            Text = "幸运抽签记录",
+            FontSize = 19,
+            FontWeight = FontWeight.SemiBold
+        });
+
+        block.Children.Add(new TextBlock
+        {
+            Text = "每抽中一个人这里就记一笔，历史存在插件配置目录的「幸运抽签统计.json」里。",
+            Opacity = 0.62,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        return block;
+    }
+
+    /// <summary>主区：左边占比图，右边明细表。</summary>
+    private Control BuildMainArea()
+    {
+        var main = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+            Margin = new Thickness(20, 12, 20, 8)
         };
 
-        foreach (var block in new[] { _headline, _fairness, _roundLine })
+        main.Children.Add(BuildChartSide());
+
+        var legend = BuildLegendSide();
+        Grid.SetColumn(legend, 1);
+        main.Children.Add(legend);
+
+        return main;
+    }
+
+    /// <summary>左半边：饼图，加上图下面那三行文字。</summary>
+    private Control BuildChartSide()
+    {
+        // 图是 1:1 的，给个固定方框；空记录时的提示压在同一个框里。
+        var chartArea = new Panel { Width = 380, Height = 380 };
+        chartArea.Children.Add(_chart);
+        chartArea.Children.Add(_emptyHint);
+
+        // 这三行都会换行，样式一致，一起设。
+        foreach (var line in new[] { _headline, _fairness, _roundLine })
         {
-            block.TextWrapping = TextWrapping.Wrap;
-            block.HorizontalAlignment = HorizontalAlignment.Center;
-            block.TextAlignment = TextAlignment.Center;
+            line.TextWrapping = TextWrapping.Wrap;
+            line.HorizontalAlignment = HorizontalAlignment.Center;
+            line.TextAlignment = TextAlignment.Center;
         }
 
         _headline.FontSize = 14;
         _fairness.FontSize = 13;
+        _fairness.Opacity = 0.85;
         _roundLine.FontSize = 13;
         _roundLine.Opacity = 0.72;
-        _fairness.Opacity = 0.85;
 
-        var legendSide = new Grid
+        var side = new StackPanel { Width = 380, Spacing = 14 };
+
+        side.Children.Add(new TextBlock
+        {
+            Text = "被抽次数占比",
+            FontSize = 15,
+            FontWeight = FontWeight.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Center
+        });
+        side.Children.Add(chartArea);
+        side.Children.Add(_headline);
+        side.Children.Add(_fairness);
+        side.Children.Add(_roundLine);
+
+        return side;
+    }
+
+    /// <summary>右半边：表头固定、下面一张可滚的明细表。</summary>
+    private Control BuildLegendSide()
+    {
+        var list = new ScrollViewer
+        {
+            Content = _legend,
+            Padding = new Thickness(0, 4, 8, 4),
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled
+        };
+
+        var side = new Grid
         {
             RowDefinitions = new RowDefinitions("Auto,*"),
-            Children =
-            {
-                BuildLegendHeader(),
-                new ScrollViewer
-                {
-                    Content = _legend,
-                    Padding = new Thickness(0, 4, 8, 4),
-                    HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled
-                }.Also(x => Grid.SetRow(x, 1))
-            }
+            // 跟左边的图拉开一点距离，两块才分得清。
+            Margin = new Thickness(28, 0, 0, 0)
         };
 
-        var body = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
-            Margin = new Thickness(20, 12, 20, 8),
-            Children =
-            {
-                chartSide,
-                legendSide.Also(x => Grid.SetColumn(x, 1))
-            }
-        };
+        side.Children.Add(BuildLegendHeader());
+        Grid.SetRow(list, 1);
+        side.Children.Add(list);
 
-        legendSide.Margin = new Thickness(28, 0, 0, 0);
+        return side;
+    }
 
+    private Control BuildFooter()
+    {
         var footer = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 10,
-            Margin = new Thickness(20, 0, 20, 16),
-            Children =
-            {
-                _clearButton,
-                new Button { Content = "刷新" }.Also(b => b.Click += (_, _) => Refresh()),
-                new Button { Content = "关闭" }.Also(b => b.Click += (_, _) => Close())
-            }
+            Margin = new Thickness(20, 0, 20, 16)
         };
 
-        return new Grid
-        {
-            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
-            Children =
-            {
-                new StackPanel
-                {
-                    Margin = new Thickness(20, 16, 20, 0),
-                    Spacing = 4,
-                    Children =
-                    {
-                        new TextBlock
-                        {
-                            Text = "幸运抽签记录",
-                            FontSize = 19,
-                            FontWeight = FontWeight.SemiBold
-                        },
-                        new TextBlock
-                        {
-                            Text = "每抽中一个人这里就记一笔，历史存在插件配置目录的「幸运抽签统计.json」里。",
-                            Opacity = 0.62,
-                            TextWrapping = TextWrapping.Wrap
-                        }
-                    }
-                },
-                body.Also(x => Grid.SetRow(x, 1)),
-                footer.Also(x => Grid.SetRow(x, 2))
-            }
-        };
+        footer.Children.Add(_clearButton);
+
+        var refresh = new Button { Content = "刷新" };
+        refresh.Click += (_, _) => Refresh();
+        footer.Children.Add(refresh);
+
+        var close = new Button { Content = "关闭" };
+        close.Click += (_, _) => Close();
+        footer.Children.Add(close);
+
+        return footer;
     }
+
+    /// <summary>明细表的列：色块 / 姓名条 / 次数 / 占比 / 本轮。</summary>
+    private const string TableColumns = "18,220,Auto,Auto,Auto";
 
     private static Control BuildLegendHeader()
     {
-        var grid = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("18,220,Auto,Auto,Auto"),
-            Margin = new Thickness(0, 0, 0, 2)
-        };
+        var header = NewTableRow(0, 2);
 
-        AddCell(grid, "姓名（条形长度＝次数多少）", 1, 0.55, FontWeight.SemiBold);
-        AddCell(grid, "次数", 2, 0.55, FontWeight.SemiBold, HorizontalAlignment.Right);
-        AddCell(grid, "占比", 3, 0.55, FontWeight.SemiBold, HorizontalAlignment.Right);
-        AddCell(grid, "本轮", 4, 0.55, FontWeight.SemiBold, HorizontalAlignment.Right);
-        return grid;
+        AddText(header, "姓名（条形长度＝次数多少）", 1, 0.55, FontWeight.SemiBold);
+        AddText(header, "次数", 2, 0.55, FontWeight.SemiBold, HorizontalAlignment.Right);
+        AddText(header, "占比", 3, 0.55, FontWeight.SemiBold, HorizontalAlignment.Right);
+        AddText(header, "本轮", 4, 0.55, FontWeight.SemiBold, HorizontalAlignment.Right);
+
+        return header;
     }
 
-    private static void AddCell(Grid grid, string text, int column, double opacity,
+    /// <summary>建一行表格容器。行距按位置给：表头紧凑，数据行松一点。</summary>
+    private static Grid NewTableRow(double top, double bottom) => new()
+    {
+        ColumnDefinitions = new ColumnDefinitions(TableColumns),
+        Margin = new Thickness(0, top, 0, bottom)
+    };
+
+    /// <summary>往指定列放一段文字。</summary>
+    private static void AddText(Grid row, string text, int column, double opacity,
         FontWeight weight = default, HorizontalAlignment align = HorizontalAlignment.Left)
     {
         var block = new TextBlock
@@ -263,65 +315,40 @@ public sealed class StatsWindow : Window
             HorizontalAlignment = align,
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        // 前两列是色块和长条，本身有位置；后面几列是数字，
+        // 统一留左边距并给个最小宽度——不给的话位数一变整列就会左右跳。
         if (column > 1)
         {
             block.Margin = new Thickness(10, 0, 0, 0);
             block.MinWidth = column == 2 ? 56 : 60;
         }
 
-        Grid.SetColumn(block, column);
-        grid.Children.Add(block);
+        row.Children.Add(InColumn(block, column));
     }
 
+    /// <summary>明细表的一行：色块、姓名长条、次数、占比、本轮状态。</summary>
     private Control BuildRow(PickStatsRow row, Color color, int maxCount)
     {
-        var grid = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("18,220,Auto,Auto,Auto"),
-            Margin = new Thickness(0, 3, 0, 3)
-        };
+        var line = NewTableRow(3, 3);
+        var accent = new SolidColorBrush(color);
 
-        var swatch = new Border
+        line.Children.Add(InColumn(new Border
         {
             Width = 12,
             Height = 12,
             CornerRadius = new CornerRadius(3),
-            Background = new SolidColorBrush(color),
+            Background = accent,
             VerticalAlignment = VerticalAlignment.Center
-        };
-        Grid.SetColumn(swatch, 0);
-        grid.Children.Add(swatch);
+        }, 0));
 
-        // 姓名下面垫一条半透明的长条，条越长抽得越多——一眼就能比出来，
-        // 不用去读右边的数字。
-        var ratio = maxCount <= 0 ? 0 : row.Count / (double)maxCount;
-        var barHost = new Panel { Height = 20, Width = 210 };
-        barHost.Children.Add(new Border
-        {
-            Height = 20,
-            Width = Math.Max(2, ratio * 200),
-            CornerRadius = new CornerRadius(4),
-            Background = new SolidColorBrush(color, row.Count > 0 ? 0.26 : 0.10),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Center
-        });
-        barHost.Children.Add(new TextBlock
-        {
-            Text = row.InRoster ? row.Name : row.Name + "（已移出名单）",
-            Margin = new Thickness(7, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 13,
-            Opacity = row.InRoster ? 1.0 : 0.5,
-            TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        Grid.SetColumn(barHost, 1);
-        grid.Children.Add(barHost);
+        line.Children.Add(InColumn(BuildNameBar(row, color, maxCount), 1));
 
-        AddCell(grid, row.Count.ToString(CultureInfo.InvariantCulture), 2, 1.0,
+        AddText(line, row.Count.ToString(CultureInfo.InvariantCulture), 2, 1.0,
             FontWeight.SemiBold, HorizontalAlignment.Right);
-        AddCell(grid, ChartPalette.Percent(row.Share), 3, 0.7, default, HorizontalAlignment.Right);
+        AddText(line, ChartPalette.Percent(row.Share), 3, 0.7, default, HorizontalAlignment.Right);
 
-        var roundText = new TextBlock
+        line.Children.Add(InColumn(new TextBlock
         {
             Text = row.DrawnThisRound ? "已抽" : "待抽",
             FontSize = 12,
@@ -330,11 +357,51 @@ public sealed class StatsWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             MinWidth = 56,
             Margin = new Thickness(10, 0, 0, 0)
-        };
-        Grid.SetColumn(roundText, 4);
-        grid.Children.Add(roundText);
+        }, 4));
 
-        return grid;
+        return line;
+    }
+
+    /// <summary>
+    /// 姓名那一格：一条按比例定长的底色，名字压在它上面。
+    /// </summary>
+    /// <remarks>
+    /// 底色和名字<b>必须叠在同一格里</b>，不能拆成两列：
+    /// 拆开的话名字会跟在底色后面走，短条上的名字就飘到中间去了。
+    /// </remarks>
+    private static Control BuildNameBar(PickStatsRow row, Color color, int maxCount)
+    {
+        var ratio = maxCount <= 0 ? 0.0 : row.Count / (double)maxCount;
+        var host = new Panel { Height = 20, Width = 210 };
+
+        host.Children.Add(new Border
+        {
+            Height = 20,
+            Width = Math.Max(2, ratio * 200),
+            CornerRadius = new CornerRadius(4),
+            Background = new SolidColorBrush(color, row.Count > 0 ? 0.26 : 0.10),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        host.Children.Add(new TextBlock
+        {
+            Text = row.InRoster ? row.Name : row.Name + "（已移出名单）",
+            Margin = new Thickness(7, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13,
+            Opacity = row.InRoster ? 1.0 : 0.5,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
+        return host;
+    }
+
+    /// <summary>把控件放进指定列。包一层是为了少写一遍 <c>Grid.SetColumn</c> 再 <c>Add</c>。</summary>
+    private static T InColumn<T>(T control, int column) where T : Control
+    {
+        Grid.SetColumn(control, column);
+        return control;
     }
 
     #endregion
