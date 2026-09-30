@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{59B47D5E-9567-467C-AC99-58E512E03B19}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClassIsland.Toolbox", "src\ClassIsland.Toolbox\ClassIsland.Toolbox.csproj", "{F715F97C-30FB-47FE-871E-AA7E098BA3FB}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{D5B7C947-E0DF-4E95-9C18-0FA70F9D678F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TbTest", "tests\TbTest\TbTest.csproj", "{84B8D706-4CC1-4328-BFF7-87A89B7DC343}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F715F97C-30FB-47FE-871E-AA7E098BA3FB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F715F97C-30FB-47FE-871E-AA7E098BA3FB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F715F97C-30FB-47FE-871E-AA7E098BA3FB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F715F97C-30FB-47FE-871E-AA7E098BA3FB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{84B8D706-4CC1-4328-BFF7-87A89B7DC343}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{84B8D706-4CC1-4328-BFF7-87A89B7DC343}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{84B8D706-4CC1-4328-BFF7-87A89B7DC343}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{84B8D706-4CC1-4328-BFF7-87A89B7DC343}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F715F97C-30FB-47FE-871E-AA7E098BA3FB} = {59B47D5E-9567-467C-AC99-58E512E03B19}
+		{84B8D706-4CC1-4328-BFF7-87A89B7DC343} = {D5B7C947-E0DF-4E95-9C18-0FA70F9D678F}
+	EndGlobalSection
+EndGlobal

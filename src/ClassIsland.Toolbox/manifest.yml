@@ -1,0 +1,14 @@
+entranceAssembly: ClassIsland.Toolbox.dll
+name: 教学助手
+id: yueshijiu.toolbox
+description: 常驻屏幕最顶层的工具条。一个云朵圆钮，点一下向两边展开，圆钮居中、功能左右均分。内置公平幸运抽签（计数均衡 + 轮次完整，带次数统计饼图）、全屏屏幕批注（软笔六色 / 橡皮三档，画在所有窗口之上，退出后点击穿透），以及你自己添加的任意快捷方式：启动程序或命令、打开网址、打开文件或文件夹、调起 ClassIsland 功能。「打开文件」支持绝对路径、相对 ClassIsland 数据目录、以及把文件副本存进插件内部三种定位方式。指向文件的按钮默认直接显示文件本身的图标。
+version: 1.0.0.0
+apiVersion: 2.0.0.0
+author: 秋夕月拾旧
+icon: icon.png
+url: https://github.com/githubyueshijiu/ClassIslandToolbox
+readme: README.md
+supportedOSPlatforms:
+  - Windows
+  - Linux
+  - OSX

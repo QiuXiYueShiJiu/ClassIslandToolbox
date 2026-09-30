@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <!-- 检测框直接画在像素缓冲上，需要 unsafe。 -->
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <OutputType>Library</OutputType>
+        <AssemblyName>ClassIsland.Toolbox</AssemblyName>
+        <RootNamespace>ClassIsland.Toolbox</RootNamespace>
+        <Version>1.0.0.0</Version>
+        <!-- 依赖一律用宿主已加载的那份，插件包里不能再带一份。 -->
+        <GenerateDependencyFile>false</GenerateDependencyFile>
+        <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia" Version="11.3.17" />
+        <!-- 设置页用了 FluentAvalonia 的 SettingsExpander，和宿主是同一个包。 -->
+        <PackageReference Include="FluentAvaloniaUI" Version="2.4.1" ExcludeAssets="runtime" />
+    </ItemGroup>
+
+    <!-- ClassIsland.Core 的拿法：
+         在 ClassIsland 源码树里（plugins/ 目录下）编译时走 ProjectReference；
+         独立编译（CI、或者只想打个包）时走 NuGet 包，版本对齐宿主用的那一版。
+         两者都 Private=false / ExcludeAssets=runtime：Core 由宿主提供，绝不能塞进 .cipx。 -->
+    <ItemGroup Condition="Exists('..\..\ClassIsland.Core\ClassIsland.Core.csproj')">
+        <ProjectReference Include="..\..\ClassIsland.Core\ClassIsland.Core.csproj"
+                          Private="false" ExcludeAssets="runtime" />
+    </ItemGroup>
+
+    <ItemGroup Condition="!Exists('..\..\ClassIsland.Core\ClassIsland.Core.csproj')">
+        <PackageReference Include="ClassIsland.Core" Version="2.1.0"
+                          PrivateAssets="all" ExcludeAssets="runtime" />
+    </ItemGroup>
+
+    <!-- 上面那两个 WinRT 投影 DLL 是从 NuGet 缓存目录里按写死的路径取的，
+         先得保证那个包被还原到本机。ExcludeAssets="all" 让它不额外参与编译。 -->
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Windows.SDK.NET.Ref" Version="10.0.19041.57"
+                          PrivateAssets="all" ExcludeAssets="all" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="manifest.yml" CopyToOutputDirectory="PreserveNewest" />
+        <None Include="README.md" CopyToOutputDirectory="PreserveNewest" />
+        <None Include="icon.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('icon.png')" />
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,20 @@
+# 构建产物
+bin/
+obj/
+dist/
+*.cipx
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# 测试输出
+/tmp/tbshots/
+*.log
+
+# 系统
+.DS_Store
+Thumbs.db
