@@ -302,8 +302,19 @@ public sealed class PickStats
     /// <summary>本版本的带版本号信封。</summary>
     private static PickStats? ParseSnapshot(string raw)
     {
-        var snapshot = JsonSerializer.Deserialize<Snapshot>(raw, JsonStorage.Options);
-        if (snapshot?.Picks is null)
+        // **先认字段再反序列化。** 直接 Deserialize<Snapshot> 对任何合法 JSON 都会成功
+        // ——Picks 有默认值空表，不是 null，于是旧格式也会被"成功"解析成零条记录，
+        // 上层那个 ?? ParseLegacy 永远轮不到，用户一升级历史就没了。
+        // 所以这里必须确认真的存在 Picks 数组，没有就交还给旧格式解析器。
+        using var document = JsonDocument.Parse(raw);
+        if (!document.RootElement.TryGetProperty("Picks", out var picks)
+            || picks.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var snapshot = document.RootElement.Deserialize<Snapshot>(JsonStorage.Options);
+        if (snapshot is null)
         {
             return null;
         }

@@ -65,6 +65,7 @@ internal static class Program
         TestAnnotation();
         TestShortcutPaths();
         TestRosterParsing();
+        TestPickStatsStorage();
 
         Console.WriteLine(_failures == 0 ? "UI 冒烟测试通过。" : $"UI 冒烟测试有 {_failures} 处失败。");
         return _failures == 0 ? 0 : 1;
@@ -1431,6 +1432,85 @@ internal static class Program
         catch (Exception ex)
         {
             Fail("名单解析抛异常: " + ex);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(dir))
+                {
+                    Directory.Delete(dir, true);
+                }
+            }
+            catch (Exception)
+            {
+                // 清理失败不影响断言结果。
+            }
+        }
+    }
+
+    /// <summary>
+    /// 抽签统计的存档：往返、旧格式迁移、坏文件兜底。
+    /// </summary>
+    /// <remarks>
+    /// 这是<b>唯一会真的丢用户数据</b>的路径——历史记录攒一学期，
+    /// 读错了就是全没了。所以三种情况都要钉住。
+    /// </remarks>
+    private static void TestPickStatsStorage()
+    {
+        Console.WriteLine("== 抽签统计存档 ==");
+
+        var dir = Path.Combine(Path.GetTempPath(), "tbtest-stats");
+        try
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+
+            Directory.CreateDirectory(dir);
+
+            // ---- 往返 ----
+            var path = Path.Combine(dir, "幸运抽签统计.json");
+            var origin = new PickStats();
+            origin.Record("张三");
+            origin.Record("张三");
+            origin.Record("李四");
+            origin.StartNewRound();
+            origin.Save(path);
+
+            var loaded = PickStats.Load(path);
+            Check(loaded.CountOf("张三") == 2 && loaded.CountOf("李四") == 1,
+                $"存读往返次数不丢（张三 {loaded.CountOf("张三")} / 李四 {loaded.CountOf("李四")}）");
+            Check(loaded.TotalPicks == 3, $"总次数按明细求和（{loaded.TotalPicks}）");
+            Check(loaded.Rounds == 2, $"轮次保住了（{loaded.Rounds}）");
+
+            // ---- 旧格式迁移 ----
+            var legacy = Path.Combine(dir, "旧格式.json");
+            File.WriteAllText(legacy,
+                "{\"Counts\":{\"王五\":3,\"赵六\":1},\"TotalPicks\":4,\"Rounds\":5}");
+            var migrated = PickStats.Load(legacy);
+            Check(migrated.CountOf("王五") == 3 && migrated.Rounds == 5,
+                $"旧版裸格式能读进来（王五 {migrated.CountOf("王五")} / 第 {migrated.Rounds} 轮）");
+
+            // ---- 坏文件：留 .bad 备份，不能静默丢 ----
+            var broken = Path.Combine(dir, "坏文件.json");
+            File.WriteAllText(broken, "{ 这不是 json");
+            var recovered = PickStats.Load(broken);
+            Check(recovered.TotalPicks == 0, "坏文件退化成空记录而不是抛异常");
+            Check(File.Exists(broken + ".bad"), "坏文件留了一份 .bad 备份，用户能自己翻");
+
+            // ---- 负数/零值条目要清掉 ----
+            var dirty = Path.Combine(dir, "脏数据.json");
+            File.WriteAllText(dirty,
+                "{\"Schema\":2,\"Round\":1,\"Picks\":[{\"Name\":\"甲\",\"Count\":2},{\"Name\":\"乙\",\"Count\":0},{\"Name\":\"\",\"Count\":5}]}");
+            var cleaned = PickStats.Load(dirty);
+            Check(cleaned.TotalPicks == 2 && cleaned.CountOf("乙") == 0,
+                $"手工改出来的脏条目被丢掉（总数 {cleaned.TotalPicks}）");
+        }
+        catch (Exception ex)
+        {
+            Fail("统计存档抛异常: " + ex);
         }
         finally
         {
