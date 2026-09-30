@@ -409,24 +409,51 @@ public sealed class StatsWindow : Window
     #region 刷新
 
     /// <summary>重新读一遍名单和历史，把图、表、汇总文字全部重画。</summary>
+    /// <summary>
+    /// 整块重画。定时器每两秒叫一次，清除统计和换名单之后也会叫。
+    /// </summary>
     public void Refresh()
     {
-        // 定时刷新每 2 秒跑一次，数据没变就别白重建几百个控件（还会打断正在拖的滚动条）。
-        var signature = (_stats.TotalPicks, _stats.Rounds, _settings.DrawnThisRound.Count,
-            _roster.Names.Count, _settings.LastPicked);
-        if (signature == _lastSignature && _legend.Children.Count > 0)
+        if (!DataChanged())
         {
             return;
         }
 
-        _lastSignature = signature;
-
         var rows = _stats.BuildRows(_roster.Names, _settings.DrawnThisRound);
-        var maxCount = rows.Count == 0 ? 0 : rows.Max(x => x.Count);
-        var inRoster = rows.Where(x => x.InRoster).ToList();
-
         var colors = BuildColorMap();
 
+        PaintChart(rows, colors);
+        PaintLegend(rows, colors, rows.Count == 0 ? 0 : rows.Max(x => x.Count));
+        PaintSummary(rows);
+
+        _refreshTimer.Start();
+    }
+
+    /// <summary>
+    /// 数据变了没有。
+    /// </summary>
+    /// <remarks>
+    /// 每两秒重建几百个控件是白费功夫，而且会<b>打断正在拖的滚动条</b>——
+    /// 手还按着，列表被清空重建，滚动位置就跳回去了。
+    /// 所以先比一个五项指纹，一样就整块跳过。
+    /// </remarks>
+    private bool DataChanged()
+    {
+        var current = (_stats.TotalPicks, _stats.Rounds, _settings.DrawnThisRound.Count,
+            _roster.Names.Count, _settings.LastPicked);
+
+        if (current == _lastSignature && _legend.Children.Count > 0)
+        {
+            return false;
+        }
+
+        _lastSignature = current;
+        return true;
+    }
+
+    /// <summary>饼图：只画被抽到过的人。一条记录都没有时压暗并亮出提示。</summary>
+    private void PaintChart(IReadOnlyList<PickStatsRow> rows, Dictionary<string, Color> colors)
+    {
         _chart.Slices = rows
             .Where(x => x.Count > 0)
             .Select(x => new PieSlice(x.Name, x.Count, colors[x.Name]))
@@ -435,8 +462,13 @@ public sealed class StatsWindow : Window
         var hasData = _stats.TotalPicks > 0;
         _emptyHint.IsVisible = !hasData;
         _chart.Opacity = hasData ? 1.0 : 0.35;
+    }
 
+    /// <summary>明细表：一行一个人。名单为空时换成一句指路的话。</summary>
+    private void PaintLegend(IReadOnlyList<PickStatsRow> rows, Dictionary<string, Color> colors, int maxCount)
+    {
         _legend.Children.Clear();
+
         if (rows.Count == 0)
         {
             _legend.Children.Add(new TextBlock
@@ -446,41 +478,56 @@ public sealed class StatsWindow : Window
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 8, 0, 0)
             });
+            return;
         }
-        else
+
+        foreach (var row in rows)
         {
-            foreach (var row in rows)
-            {
-                _legend.Children.Add(BuildRow(row, colors[row.Name], maxCount));
-            }
+            _legend.Children.Add(BuildRow(row, colors[row.Name], maxCount));
         }
+    }
 
-        var total = _stats.TotalPicks;
-        _headline.Text = $"共 {inRoster.Count} 人 · 累计抽取 {total} 次";
+    /// <summary>图下面那三行：总量、均衡度、本轮进度。</summary>
+    private void PaintSummary(IReadOnlyList<PickStatsRow> rows)
+    {
+        var inRoster = rows.Where(x => x.InRoster).ToList();
 
+        _headline.Text = $"共 {inRoster.Count} 人 · 累计抽取 {_stats.TotalPicks} 次";
+
+        // 名单空着的话下面两行没有意义，留白。
         if (inRoster.Count == 0)
         {
             _fairness.Text = string.Empty;
             _roundLine.Text = string.Empty;
+            return;
         }
-        else
-        {
-            var min = inRoster.Min(x => x.Count);
-            var max = inRoster.Max(x => x.Count);
-            var average = inRoster.Average(x => x.Count);
-            var gap = max - min;
 
-            _fairness.Text = $"最少 {min} 次 · 最多 {max} 次 · 平均 {average:F2} 次    " +
-                             (gap <= 1
-                                 ? "✓ 已均衡：所有人相差不超过 1 次"
-                                 : $"⚠ 相差 {gap} 次，继续抽会慢慢拉平");
-        }
+        _fairness.Text = DescribeFairness(inRoster);
 
         var remaining = _roster.RemainingInRound(_settings);
-        _roundLine.Text = $"第 {_stats.Rounds} 轮 · 本轮已抽 " +
-                          $"{Math.Max(0, inRoster.Count - remaining)}/{inRoster.Count} 人";
+        var drawn = Math.Max(0, inRoster.Count - remaining);
+        _roundLine.Text = $"第 {_stats.Rounds} 轮 · 本轮已抽 {drawn}/{inRoster.Count} 人";
+    }
 
-        _refreshTimer.Start();
+    /// <summary>
+    /// 把「均不均衡」说成人话。
+    /// </summary>
+    /// <remarks>
+    /// 判据是<b>最多和最少差几次</b>，不是标准差。老师关心的是"有没有人被明显漏掉"，
+    /// 差 0~1 次就算拉平了；标准差那种数字没人会在课间去算。
+    /// </remarks>
+    private static string DescribeFairness(IReadOnlyList<PickStatsRow> inRoster)
+    {
+        var min = inRoster.Min(x => x.Count);
+        var max = inRoster.Max(x => x.Count);
+        var average = inRoster.Average(x => x.Count);
+        var gap = max - min;
+
+        var verdict = gap <= 1
+            ? "✓ 已均衡：所有人相差不超过 1 次"
+            : $"⚠ 相差 {gap} 次，继续抽会慢慢拉平";
+
+        return $"最少 {min} 次 · 最多 {max} 次 · 平均 {average:F2} 次    {verdict}";
     }
 
     /// <summary>
@@ -491,60 +538,104 @@ public sealed class StatsWindow : Window
     /// 每抽一次名次就变一次，要是跟着名次分配颜色，整张饼图会一直闪。
     /// 历史里残留下来的、已经不在名单里的人排在后面。
     /// </remarks>
+    /// <summary>
+    /// 给每个出现过的名字配一个颜色。
+    /// </summary>
+    /// <remarks>
+    /// 顺序必须是<b>先名单、后历史</b>：名单里的人要占住前几个最耐看的颜色，
+    /// 后面补的是「已经移出名单、但历史里还留着」的人。补的时候按字典序，
+    /// 保证同一份数据每次打开配色都一样，不会一刷新就换色。
+    /// </remarks>
     private Dictionary<string, Color> BuildColorMap()
     {
         var map = new Dictionary<string, Color>(StringComparer.Ordinal);
-        var index = 0;
 
         foreach (var name in _roster.Names)
         {
-            if (!map.ContainsKey(name))
-            {
-                map[name] = ChartPalette.ForIndex(index++);
-            }
+            AssignColor(map, name);
         }
 
         foreach (var name in _stats.Counts.Keys
                      .Where(x => !map.ContainsKey(x))
                      .OrderBy(x => x, StringComparer.Ordinal))
         {
-            map[name] = ChartPalette.ForIndex(index++);
+            AssignColor(map, name);
         }
 
         return map;
+    }
+
+    /// <summary>
+    /// 给一个人发颜色。
+    /// </summary>
+    /// <remarks>
+    /// 色号直接取「已经发出去几个」，不另设自增计数器——
+    /// 重名不重复发色，于是个数和色号天然同步，不会出现两个计数对不上。
+    /// </remarks>
+    private static void AssignColor(Dictionary<string, Color> issued, string name)
+    {
+        if (!issued.ContainsKey(name))
+        {
+            issued[name] = ChartPalette.ForIndex(issued.Count);
+        }
     }
 
     #endregion
 
     #region 清除统计
 
+    /// <summary>
+    /// 「清除统计」被点了。
+    /// </summary>
+    /// <remarks>
+    /// 这是个不可逆操作，误触的代价是一学期攒下来的记录，所以要点两次：
+    /// 第一次只是「上膛」，按钮文字变成确认，五秒内不再点就自己复原。
+    /// </remarks>
     private void OnClearClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (!_confirmingClear)
         {
-            // 第一次点：只改文案，不动数据。
-            _confirmingClear = true;
-            _clearButton.Content = "再点一次确认清除";
-            _confirmTimer?.Stop();
-            _confirmTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-            _confirmTimer.Tick += (_, _) =>
-            {
-                _confirmTimer?.Stop();
-                ResetClearButton();
-            };
-            _confirmTimer.Start();
+            ArmClear();
             return;
         }
 
-        ResetClearButton();
+        DisarmClear();
+        WipeAll();
+    }
 
+    /// <summary>上膛：换成确认文案，并起一个五秒的自动复原计时。</summary>
+    private void ArmClear()
+    {
+        _confirmingClear = true;
+        _clearButton.Content = "再点一次确认清除";
+
+        _confirmTimer?.Stop();
+        _confirmTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _confirmTimer.Tick += (_, _) =>
+        {
+            _confirmTimer?.Stop();
+            DisarmClear();
+        };
+        _confirmTimer.Start();
+    }
+
+    /// <summary>收枪：恢复按钮文案和状态。</summary>
+    private void DisarmClear()
+    {
+        _confirmingClear = false;
+        ResetClearButton();
+    }
+
+    /// <summary>真的清：历史、本轮进度、上一次抽中的人，一并抹掉并立刻落盘。</summary>
+    private void WipeAll()
+    {
         _stats.ResetAll();
-        // 轮次进度和次数是一套账，清了次数却留着「本轮已抽」会很别扭。
         _settings.DrawnThisRound.Clear();
         _settings.LastPicked = null;
         _persist();
+
+        // 指纹置空，下一次 Refresh 必定重画，不会被"看起来没变"跳过。
         _lastSignature = null;
-        Refresh();
     }
 
     private void ResetClearButton()
