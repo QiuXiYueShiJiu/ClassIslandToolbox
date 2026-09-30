@@ -87,7 +87,7 @@ public sealed class StatsWindow : Window
         _stats = stats;
         _persist = persist;
 
-        Title = "抽取次数统计";
+        Title = "幸运抽签统计";
         Width = 940;
         Height = 660;
         MinWidth = 760;
@@ -224,7 +224,7 @@ public sealed class StatsWindow : Window
                         },
                         new TextBlock
                         {
-                            Text = "每抽中一个人这里就记一笔，历史存在插件配置目录的「抽取统计.json」里。",
+                            Text = "每抽中一个人这里就记一笔，历史存在插件配置目录的「幸运抽签统计.json」里。",
                             Opacity = 0.62,
                             TextWrapping = TextWrapping.Wrap
                         }
