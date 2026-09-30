@@ -59,6 +59,33 @@ public class RevealWindow : Window
 
     private const double CloudPaddingBottom = 0.80;
 
+    /// <summary>
+    /// 入场过渡：淡入 + 轻微放大。
+    /// </summary>
+    /// <remarks>
+    /// 两条过渡共用同一套缓动和时长口径，视觉上才像"一次动作"而不是先后两段。
+    /// 抽成工厂而不是就地写死，是为了调时长时只改一处。
+    /// </remarks>
+    private static Transitions EntranceTransitions() =>
+    [
+        FadeIn(OpacityProperty, 140),
+        GrowIn(RenderTransformProperty, 220)
+    ];
+
+    private static DoubleTransition FadeIn(AvaloniaProperty property, int milliseconds) => new()
+    {
+        Property = property,
+        Duration = TimeSpan.FromMilliseconds(milliseconds),
+        Easing = new CubicEaseOut()
+    };
+
+    private static TransformOperationsTransition GrowIn(AvaloniaProperty property, int milliseconds) => new()
+    {
+        Property = property,
+        Duration = TimeSpan.FromMilliseconds(milliseconds),
+        Easing = new CubicEaseOut()
+    };
+
     private static RevealWindow? _instance;
 
     private readonly TextBlock _lead;
@@ -168,21 +195,7 @@ public class RevealWindow : Window
             // 交给 Animation.RunAsync 会抛类型转换异常。
             RenderTransform = TransformOperations.Parse("scale(0.92)"),
             RenderTransformOrigin = RelativePoint.Center,
-            Transitions =
-            [
-                new DoubleTransition
-                {
-                    Property = OpacityProperty,
-                    Duration = TimeSpan.FromMilliseconds(140),
-                    Easing = new CubicEaseOut()
-                },
-                new TransformOperationsTransition
-                {
-                    Property = RenderTransformProperty,
-                    Duration = TimeSpan.FromMilliseconds(220),
-                    Easing = new CubicEaseOut()
-                }
-            ]
+            Transitions = EntranceTransitions()
         };
 
         ApplyScale(fontSize);

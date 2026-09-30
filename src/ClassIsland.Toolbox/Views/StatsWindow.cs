@@ -61,6 +61,7 @@ public sealed class StatsWindow : Window
     /// <param name="persist">清除统计之后要把设置和历史写回磁盘。</param>
     public static void Show(PickSettings settings, RosterService roster, PickStats stats, Action persist)
     {
+        // 已经开着就把它提到前面并刷新，而不是再叠一个窗口出来。
         if (_instance is { IsVisible: true } existing)
         {
             existing.Refresh();
@@ -70,14 +71,17 @@ public sealed class StatsWindow : Window
 
         var window = new StatsWindow(settings, roster, stats, persist);
         _instance = window;
-        window.Closed += (_, _) =>
-        {
-            if (ReferenceEquals(_instance, window))
-            {
-                _instance = null;
-            }
-        };
+        window.Closed += OnClosed;
         window.Show();
+    }
+
+    /// <summary>关掉之后把单例摘掉，下次打开才是全新的一份。</summary>
+    private static void OnClosed(object? sender, EventArgs e)
+    {
+        if (ReferenceEquals(_instance, sender))
+        {
+            _instance = null;
+        }
     }
 
     private StatsWindow(PickSettings settings, RosterService roster, PickStats stats, Action persist)
