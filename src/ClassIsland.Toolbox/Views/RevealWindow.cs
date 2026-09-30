@@ -36,18 +36,34 @@ public class RevealWindow : Window
     // 和工具条同一套「云 + 天空」：淡蓝描边、深蓝灰的字。
     private static readonly Color CloudBorder = Color.FromRgb(0x93, 0xC1, 0xEB);
     private static readonly Color CloudFill = Color.FromArgb(0xFF, 0xFA, 0xFD, 0xFF);
-    private static readonly Color NameColor = Color.FromRgb(0x2B, 0x42, 0x57);
+    private static readonly Color NameColor = Color.FromRgb(0x1F, 0x6F, 0xD4);
+    private static readonly Color LeadColor = Color.FromRgb(0x8A, 0x9E, 0xB1);
+
+    /// <summary>
+    /// 名字用的字体。
+    /// </summary>
+    /// <remarks>
+    /// 按平台常见的中文字体排一串，交给系统挑第一个装了的：
+    /// Windows 上是微软雅黑，macOS 上苹方，Linux 上思源黑体。
+    /// <b>不写死单一字体</b>——插件要跨平台，写死一个系统没有的字体就会掉回默认字形，
+    /// 大屏幕上那个默认字形很难看。
+    /// </remarks>
+    private static readonly FontFamily UiFont = new(
+        "Microsoft YaHei UI, Microsoft YaHei, PingFang SC, Hiragino Sans GB, " +
+        "Source Han Sans SC, Noto Sans CJK SC, sans-serif");
 
     /// <summary>云面比名字大多少（倍数）。太小会显得字挤满整朵云。</summary>
     private const double CloudPaddingX = 1.25;
 
-    private const double CloudPaddingTop = 1.30;
+    private const double CloudPaddingTop = 0.95;
 
     private const double CloudPaddingBottom = 0.80;
 
     private static RevealWindow? _instance;
 
+    private readonly TextBlock _lead;
     private readonly TextBlock _nameText;
+    private readonly StackPanel _lines;
     private readonly CloudButtonSurface _cloud;
     private readonly Panel _stage;
     private readonly DispatcherTimer _closeTimer;
@@ -97,16 +113,37 @@ public class RevealWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         IsHitTestVisible = false;
 
+        // 第一行「有请——」：小字、灰色、靠左。
+        // 靠左是刻意的——它是一句引子，跟下面居中的名字拉开，看着才像"念到名字"。
+        _lead = new TextBlock
+        {
+            Text = "有请——",
+            FontSize = fontSize * 0.24,
+            FontFamily = UiFont,
+            Foreground = new SolidColorBrush(LeadColor),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(fontSize * 0.10, 0, 0, fontSize * 0.08)
+        };
+
+        // 第二行：名字。大字、蓝色、加粗。
         _nameText = new TextBlock
         {
             FontSize = fontSize,
-            FontWeight = FontWeight.SemiBold,
+            FontWeight = FontWeight.Bold,
+            FontFamily = UiFont,
             Foreground = new SolidColorBrush(NameColor),
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = Math.Max(280, fontSize * 4.6)
+        };
+
+        _lines = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { _lead, _nameText }
         };
 
         // 整朵云就是一个控件，把名字压在上面。
@@ -124,7 +161,7 @@ public class RevealWindow : Window
         {
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { _cloud, _nameText },
+            Children = { _cloud, _lines },
             Opacity = 0,
             // 用 TransformOperations 而不是自己搭 ScaleTransform：
             // 过渡挂在 Visual 上才有自己的时钟；单独的 ScaleTransform 不是 Visual，
@@ -157,7 +194,7 @@ public class RevealWindow : Window
 
     /// <summary>按字号把云面撑到比名字大一圈。</summary>
     private void ApplyScale(double fontSize) =>
-        _nameText.Margin = new Thickness(
+        _lines.Margin = new Thickness(
             fontSize * CloudPaddingX,
             fontSize * CloudPaddingTop,
             fontSize * CloudPaddingX,
@@ -168,6 +205,8 @@ public class RevealWindow : Window
     {
         _nameText.Text = name;
         _nameText.FontSize = fontSize;
+        _lead.FontSize = fontSize * 0.24;
+        _lead.Margin = new Thickness(fontSize * 0.10, 0, 0, fontSize * 0.08);
         ApplyScale(fontSize);
         Bump(hold);
     }
