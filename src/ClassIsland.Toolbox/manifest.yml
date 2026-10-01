@@ -6,7 +6,7 @@ version: 1.1.0.0
 apiVersion: 2.0.0.0
 author: 秋夕月拾旧
 icon: icon.png
-url: https://github.com/githubyueshijiu/ClassIslandToolbox
+url: https://github.com/QiuXiYueShiJiu/ClassIslandToolbox
 readme: README.md
 supportedOSPlatforms:
   - Windows

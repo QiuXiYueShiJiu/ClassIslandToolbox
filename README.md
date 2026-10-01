@@ -113,7 +113,7 @@
 需要 **.NET 8 SDK**。
 
 ```bash
-git clone https://github.com/githubyueshijiu/ClassIslandToolbox.git
+git clone https://github.com/QiuXiYueShiJiu/ClassIslandToolbox.git
 cd ClassIslandToolbox
 
 # 编译

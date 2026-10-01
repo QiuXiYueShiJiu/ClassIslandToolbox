@@ -85,4 +85,4 @@ ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快�
 
 开发中参考过 [ClassIsland](https://github.com/ClassIsland/ClassIsland) 官方插件模板与 `ExamplePlugin`，以及 [RandomPicker](https://github.com/Gordonynh/RandomPicker)。
 
-[MIT License](https://github.com/githubyueshijiu/ClassIslandToolbox/blob/main/LICENSE)
+[MIT License](https://github.com/QiuXiYueShiJiu/ClassIslandToolbox/blob/main/LICENSE)
