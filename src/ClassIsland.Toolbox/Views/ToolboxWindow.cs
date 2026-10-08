@@ -1,4 +1,4 @@
-// 教学助手 v1.1.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.2.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -186,6 +186,15 @@ public class ToolboxWindow : Window
     private IPointer? _capturedPointer;
     private bool _pointerDown;
     private bool _dragging;
+
+    /// <summary>
+    /// 这一次按下是不是落在圆钮上。
+    /// </summary>
+    /// <remarks>
+    /// 拖动和点击是两回事：展开之后整条面板都能拖，但「点一下收起工具条」
+    /// 只应该认圆钮。没有这个标记的话，点面板背景会把工具条收起来。
+    /// </remarks>
+    private bool _pressOnKnob;
     private bool _menuOpened;
     private Point _pressOrigin;
     private PixelPoint _grabOffset;
@@ -358,12 +367,16 @@ public class ToolboxWindow : Window
         // 背景板只是一片薄薄的蓝天，**不画云**：
         // 高度取主按钮的一半、贴着底边，于是「按钮一半落在板上、一半悬在空中」——
         // 这样既像云飘在天上，遮住底下的内容也少得多。
+        // 底板是能拖着走的，光标上给个提示
         _pillBackdrop = new CloudBackdrop
         {
             CornerRadius = 999,
             ShowClouds = false,
             StrokeThickness = 1.5,
-            VerticalAlignment = VerticalAlignment.Bottom
+            VerticalAlignment = VerticalAlignment.Bottom,
+            // 这片底板可以拖着挪窗口，光标上给个提示。
+            // 按钮会用自己的手形光标覆盖它，所以不会让人以为按钮也能拖。
+            Cursor = new Cursor(StandardCursorType.SizeAll)
         };
         _row.Margin = new Thickness(9, 0, 9, 0);
 
@@ -1284,11 +1297,14 @@ public class ToolboxWindow : Window
             return;
         }
 
-        // 点在展开出来的按钮上时，按钮自己会处理，这里不接管。
-        if (_expanded && !IsOnKnob(point.Position))
-        {
-            return;
-        }
+        // 展开之后面板背景也要能拖着走。
+        //
+        // 以前这里是「展开且不在圆钮上就直接返回」，结果展开后只有圆钮能拖，
+        // 面板上那一片空白按下去毫无反应——想挪工具条却发现只有中间那个圆点管用。
+        // 现在放开拖动，靠两道保险避免误伤：
+        //   ① 所有可点的按钮都会把 PointerPressed 标成已处理，根本冒不到这里；
+        //   ② 「点击」仍然只认圆钮，按在背景上不会顺手把工具条收起来。
+        _pressOnKnob = !_expanded || IsOnKnob(point.Position);
 
         _pointerDown = true;
         _dragging = false;
@@ -1301,7 +1317,12 @@ public class ToolboxWindow : Window
         var pressOnScreen = this.PointToScreen(point.Position);
         _grabOffset = new PixelPoint(pressOnScreen.X - Position.X, pressOnScreen.Y - Position.Y);
 
-        _knob.RenderTransform = TransformOperations.Parse("scale(0.93)");
+        // 按下反馈只给圆钮：按面板背景时让圆钮缩一下，会让人以为点到了它。
+        if (_pressOnKnob)
+        {
+            _knob.RenderTransform = TransformOperations.Parse("scale(0.93)");
+        }
+
         e.Pointer.Capture(this);
         _capturedPointer = e.Pointer;
 
@@ -1440,7 +1461,7 @@ public class ToolboxWindow : Window
             CapturePosition();
             SettingsChanged?.Invoke(this, EventArgs.Empty);
         }
-        else if (e.InitialPressMouseButton is MouseButton.Left or MouseButton.None)
+        else if (_pressOnKnob && e.InitialPressMouseButton is MouseButton.Left or MouseButton.None)
         {
             SetExpanded(!_expanded);
         }
@@ -2217,11 +2238,24 @@ public class ToolboxWindow : Window
                 surface.SetFill(active ? Color.FromArgb(0xFF, 0xE3, 0xF2, 0xFF) : SkyItemFill);
             }
         };
+        // 必须把按下事件标成已处理，别让它冒到窗口上去。
+        // 窗口一旦接管就会捕获指针，这颗按钮的 PointerReleased 就再也收不到了，
+        // 表现是「点了没反应」——放开面板拖动之后这一条尤其关键。
+        // 禁用的按钮不拦，好让那一片还能用来拖工具条。
+        chip.PointerPressed += (_, e) =>
+        {
+            if (enabled)
+            {
+                e.Handled = true;
+            }
+        };
+
         chip.PointerReleased += (_, e) =>
         {
             if (enabled && e.InitialPressMouseButton == MouseButton.Left)
             {
                 onClick();
+                e.Handled = true;
             }
         };
 
