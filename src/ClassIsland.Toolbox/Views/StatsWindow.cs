@@ -1,4 +1,4 @@
-// 教学助手 v1.4.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.4.1.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -57,11 +57,20 @@ public sealed class StatsWindow : Window
     /// <summary>被选中、等着一起撤回的历史条目 id。</summary>
     private readonly HashSet<string> _selected = new(StringComparer.Ordinal);
 
-    /// <summary>「最近抽签」那一条：最新的在最左边，横向排开。</summary>
+    /// <summary>完整抽签记录：一行一抽，最新的在最上面。</summary>
     private readonly StackPanel _historyStrip = new()
     {
-        Orientation = Orientation.Horizontal,
-        Spacing = 6
+        Orientation = Orientation.Vertical,
+        Spacing = 2
+    };
+
+    /// <summary>记录列表的标题，条数会跟着历史变。</summary>
+    private readonly TextBlock _historyTitle = new()
+    {
+        FontSize = 13,
+        FontWeight = FontWeight.SemiBold,
+        Opacity = 0.75,
+        VerticalAlignment = VerticalAlignment.Center
     };
 
     /// <summary>撤回之后在条子标题旁边亮一句，过几秒自己消失。</summary>
@@ -330,11 +339,11 @@ public sealed class StatsWindow : Window
     }
 
     /// <summary>
-    /// 底栏上方那一条「最近抽签」：谁、几点几分，最新的排在最左边。
+    /// 底栏上方的「全部抽签记录」：一行一抽，最新的在最上面，放不下就纵向滚动。
     /// </summary>
     /// <remarks>
-    /// 只显示最近二十条，横向排开、放不下就滚动。<b>这一条是给老师核对用的</b>——
-    /// 抽错了先看这里是不是刚才那一抽，再按「撤回上一抽」。
+    /// **这里列的是完整历史，不是最近几条**，每一行都带着时间、姓名、第几轮、当时名单人数。
+    /// 抽错了先核对是哪几行，点一下选中，再按「撤回选中」。
     /// </remarks>
     private Control BuildHistoryStrip()
     {
@@ -349,32 +358,60 @@ public sealed class StatsWindow : Window
             Orientation = Orientation.Horizontal,
             Spacing = 8
         };
-        head.Children.Add(new TextBlock
-        {
-            Text = "最近抽签",
-            FontSize = 13,
-            FontWeight = FontWeight.SemiBold,
-            Opacity = 0.75,
-            VerticalAlignment = VerticalAlignment.Center
-        });
+        head.Children.Add(_historyTitle);
         head.Children.Add(_undoToast);
         head.Children.Add(new TextBlock
         {
-            Text = "点标签选中要撤的那几抽，再按「撤回选中」",
+            Text = "点一行选中要撤的那几抽，再按「撤回选中」",
             FontSize = 12,
             Opacity = 0.5,
             VerticalAlignment = VerticalAlignment.Center
         });
         block.Children.Add(head);
 
+        block.Children.Add(BuildHistoryHeader());
+
         block.Children.Add(new ScrollViewer
         {
             Content = _historyStrip,
-            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled
+            MaxHeight = 200,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
         });
 
         return block;
+    }
+
+    /// <summary>记录列表的列标题。宽度和 <see cref="BuildHistoryRow"/> 一一对应。</summary>
+    private static Control BuildHistoryHeader()
+    {
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("24,150,110,70,80,60"),
+            Margin = new Thickness(6, 0, 6, 2)
+        };
+
+        AddHistoryCell(grid, 0, "");
+        AddHistoryCell(grid, 1, "时间");
+        AddHistoryCell(grid, 2, "抽到");
+        AddHistoryCell(grid, 3, "轮次");
+        AddHistoryCell(grid, 4, "名单人数");
+        AddHistoryCell(grid, 5, "新一轮");
+
+        return grid;
+    }
+
+    private static void AddHistoryCell(Grid grid, int column, string text)
+    {
+        var label = new TextBlock
+        {
+            Text = text,
+            FontSize = 11,
+            Opacity = 0.5
+        };
+
+        Grid.SetColumn(label, column);
+        grid.Children.Add(label);
     }
 
     /// <summary>明细表的列：色块 / 姓名条 / 次数 / 占比 / 本轮。</summary>
@@ -551,17 +588,22 @@ public sealed class StatsWindow : Window
     }
 
     /// <summary>
-    /// 「最近抽签」那一条：最新的一抽在最左边。
+    /// 完整抽签记录列表：一行一抽，最新的一抽在最上面。
     /// </summary>
+    /// <remarks>
+    /// <b>列的是全部历史</b>，不是最近几条：抽错了可以往下翻到任意一条再选中。
+    /// </remarks>
     private void PaintHistory()
     {
         _historyStrip.Children.Clear();
 
-        var history = _stats.History(20);
+        var history = _stats.History();
 
         // 被撤掉的条目不能继续留在选中集合里，否则「撤回选中」会带上已经不存在的 id。
         var alive = new HashSet<string>(history.Select(x => x.Id), StringComparer.Ordinal);
         _selected.RemoveWhere(id => !alive.Contains(id));
+
+        _historyTitle.Text = $"全部抽签记录（{history.Count} 条）";
 
         if (history.Count == 0)
         {
@@ -577,57 +619,53 @@ public sealed class StatsWindow : Window
 
         foreach (var record in history)
         {
-            _historyStrip.Children.Add(BuildHistoryChip(record));
+            _historyStrip.Children.Add(BuildHistoryRow(record));
         }
     }
 
     /// <summary>
-    /// 一条历史小标签：名字 + 几点几分，点一下选中、再点一下取消。
+    /// 一行抽签记录：选中标记 / 时间 / 姓名 / 第几轮 / 当时名单人数 / 有没有开新一轮。
     /// </summary>
     /// <remarks>
-    /// 鼠标停上去能看到这一抽的完整信息：第几轮、精确到秒的时间、当时名单有多少人、有没有开新一轮。
-    /// 要退哪几条就点哪几条，不必只能从最后一条往前撤。
+    /// 点一下选中、再点一下取消，选中的行会亮起来。
     /// </remarks>
-    private Control BuildHistoryChip(PickRecord record)
+    private Control BuildHistoryRow(PickRecord record)
     {
         var selected = _selected.Contains(record.Id);
 
-        var chip = new Border
+        var grid = new Grid
         {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(10, 4, 10, 4),
-            Background = new SolidColorBrush(
-                selected ? Colors.DodgerBlue : Colors.Gray,
-                selected ? 0.35 : 0.16),
-            BorderThickness = new Thickness(1),
-            BorderBrush = new SolidColorBrush(
-                selected ? Colors.DodgerBlue : Colors.Transparent,
-                selected ? 0.9 : 0),
-            Cursor = new Cursor(StandardCursorType.Hand),
-            Child = new TextBlock
-            {
-                Text = $"{record.Name}  {record.At:HH:mm}",
-                FontSize = 12
-            }
+            ColumnDefinitions = new ColumnDefinitions("24,150,110,70,80,60")
         };
 
-        var round = record.StartedNewRound
-            ? $"第 {record.Round} 轮（这一抽开了新一轮）"
-            : $"第 {record.Round} 轮";
+        AddHistoryCell(grid, 0, selected ? "✓" : "");
+        AddHistoryCell(grid, 1, record.At.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+        AddHistoryCell(grid, 2, record.Name);
+        AddHistoryCell(grid, 3, $"第 {record.Round} 轮");
+        AddHistoryCell(grid, 4, $"{record.RosterSize} 人");
+        AddHistoryCell(grid, 5, record.StartedNewRound ? "是" : "");
 
-        ToolTip.SetTip(chip,
-            $"{record.At:yyyy-MM-dd HH:mm:ss}\n{round}\n当时名单 {record.RosterSize} 人\n点一下选中，再点取消");
+        var row = new Border
+        {
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 3, 6, 3),
+            Background = new SolidColorBrush(
+                selected ? Colors.DodgerBlue : Colors.Transparent,
+                selected ? 0.22 : 0),
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Child = grid
+        };
 
-        chip.PointerPressed += (_, e) =>
+        row.PointerPressed += (_, e) =>
         {
             ToggleSelection(record.Id);
             e.Handled = true;
         };
 
-        return chip;
+        return row;
     }
 
-    /// <summary>点标签：没选中就选上，选上了就取消。</summary>
+    /// <summary>点一行：没选中就选上，选上了就取消。</summary>
     private void ToggleSelection(string id)
     {
         if (!_selected.Remove(id))
