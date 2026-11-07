@@ -1,4 +1,4 @@
-// 教学助手 v1.2.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.3.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -24,6 +24,25 @@ public sealed record PickStatsRow(
     bool DrawnThisRound,
     double Share);
 
+/// <summary>抽签历史里的一条：谁、什么时候、这一抽有没有顺带开启新一轮。</summary>
+/// <param name="Name">抽中的人。</param>
+/// <param name="At">抽中的时间。</param>
+/// <param name="StartedNewRound">这一抽是不是把上一轮抽满后自动开启新一轮的那一抽。</param>
+public sealed record PickRecord(string Name, DateTimeOffset At, bool StartedNewRound);
+
+/// <summary>
+/// 撤回一抽之后交还给调用方的信息。
+/// </summary>
+/// <param name="Name">被撤回的人。</param>
+/// <param name="StartedNewRound">被撤回的这一抽当时有没有触发自动翻轮。</param>
+/// <param name="PreviousDrawnThisRound">
+/// 如果触发了自动翻轮，这里是翻轮之前「本轮已抽」的名单——调用方要拿它把本轮进度原样还回去。
+/// </param>
+public sealed record PickUndoResult(
+    string Name,
+    bool StartedNewRound,
+    IReadOnlyList<string>? PreviousDrawnThisRound);
+
 /// <summary>
 /// 抽取次数的历史记录 —— 公平性的唯一依据。
 /// </summary>
@@ -43,7 +62,20 @@ public sealed record PickStatsRow(
 public sealed class PickStats
 {
     /// <summary>当前存档格式版本。读旧文件时靠它决定怎么解析。</summary>
-    private const int CurrentSchema = 2;
+    /// <remarks>
+    /// 3：在次数表之外多记一份「逐次抽取」的历史，撤回误抽 / 乱抽要靠它。
+    /// 2 及以前的文件照常能读，只是没有可撤回的历史。
+    /// </remarks>
+    private const int CurrentSchema = 3;
+
+    /// <summary>
+    /// 逐次历史最多留多少条。
+    /// </summary>
+    /// <remarks>
+    /// 次数表是独立的，截掉旧事件不影响公平性，只是更早的抽签不能再撤回了。
+    /// 一学期几十人、几十轮也就是几百条，这个上限足够覆盖到「课上刚抽错」的场景。
+    /// </remarks>
+    private const int HistoryCapacity = 500;
 
     /// <summary>一条记录：谁、被抽到过几次。</summary>
     private sealed class Entry
@@ -51,6 +83,18 @@ public sealed class PickStats
         public string Name { get; set; } = "";
 
         public int Count { get; set; }
+    }
+
+    /// <summary>逐次历史的一条。比对外暴露的 <see cref="PickRecord"/> 多存一份翻轮前的进度。</summary>
+    private sealed class HistoryEntry
+    {
+        public string Name { get; set; } = "";
+
+        public DateTimeOffset At { get; set; }
+
+        public bool StartedNewRound { get; set; }
+
+        public List<string>? PreviousDrawnThisRound { get; set; }
     }
 
     /// <summary>落盘用的信封。字段名和内部结构解耦，改内部实现不必动存档格式。</summary>
@@ -63,10 +107,16 @@ public sealed class PickStats
         public DateTimeOffset? Updated { get; set; }
 
         public List<Entry> Picks { get; set; } = [];
+
+        /// <summary>逐次抽取历史，最旧的在前。2 版及以前的文件里没有这个字段。</summary>
+        public List<HistoryEntry>? History { get; set; }
     }
 
     /// <summary>只装被抽到过的人。没有记录的人就是 0 次，不需要出现在这里。</summary>
     private readonly List<Entry> _picks = [];
+
+    /// <summary>逐次抽取历史，最旧的在前。撤回只从末尾往回走。</summary>
+    private readonly List<HistoryEntry> _history = [];
 
     private int _round = 1;
     private DateTimeOffset? _updated;
@@ -134,6 +184,34 @@ public sealed class PickStats
 
     /// <summary>某人至今被抽到过多少次。没记录就是 0。</summary>
     public int CountOf(string name) => Find(name)?.Count ?? 0;
+
+    /// <summary>还有没有可以撤回的抽签。</summary>
+    public bool CanUndo => _history.Count > 0;
+
+    /// <summary>逐次历史里现在有多少条。</summary>
+    public int HistoryCount => _history.Count;
+
+    /// <summary>最近一次抽中。没有历史时是 <c>null</c>。</summary>
+    public PickRecord? LastPick => _history.Count == 0
+        ? null
+        : new PickRecord(_history[^1].Name, _history[^1].At, _history[^1].StartedNewRound);
+
+    /// <summary>
+    /// 取最近的抽签历史，<b>最新的排在前面</b>。
+    /// </summary>
+    /// <param name="max">最多取几条。</param>
+    public IReadOnlyList<PickRecord> History(int max = int.MaxValue)
+    {
+        var take = Math.Min(max, _history.Count);
+        var list = new List<PickRecord>(take);
+
+        for (var i = _history.Count - 1; i >= 0 && list.Count < take; i--)
+        {
+            list.Add(new PickRecord(_history[i].Name, _history[i].At, _history[i].StartedNewRound));
+        }
+
+        return list;
+    }
 
     /// <summary>
     /// 名单里被抽到过的最少 / 最多次数。
@@ -230,7 +308,13 @@ public sealed class PickStats
     #region 变更
 
     /// <summary>记一次「抽到了某人」。每次真的抽出一个名字都要走这儿。</summary>
-    public void Record(string name)
+    /// <param name="name">抽中的人。</param>
+    /// <param name="startedNewRound">这一抽是不是把上一轮抽满后自动开启了新一轮。</param>
+    /// <param name="previousDrawnThisRound">
+    /// 如果自动翻了轮，传翻轮之前「本轮已抽」的名单，撤回时靠它原样还回去。
+    /// </param>
+    public void Record(string name, bool startedNewRound = false,
+        IReadOnlyList<string>? previousDrawnThisRound = null)
     {
         var entry = Find(name);
         if (entry is null)
@@ -242,7 +326,58 @@ public sealed class PickStats
             entry.Count++;
         }
 
+        _history.Add(new HistoryEntry
+        {
+            Name = name,
+            At = DateTimeOffset.Now,
+            StartedNewRound = startedNewRound,
+            PreviousDrawnThisRound = previousDrawnThisRound?.ToList()
+        });
+
+        if (_history.Count > HistoryCapacity)
+        {
+            _history.RemoveRange(0, _history.Count - HistoryCapacity);
+        }
+
         _updated = DateTimeOffset.Now;
+    }
+
+    /// <summary>
+    /// 撤回最近一次抽中：次数减一、历史去掉末尾一条；如果那一抽顺带翻了轮，轮次也退回去。
+    /// </summary>
+    /// <returns>撤回的信息；没有历史时返回 <c>null</c>。</returns>
+    /// <remarks>
+    /// <b>只从末尾往回退，不支持抽掉中间一条。</b>中间一条一撤，后面几抽的「本轮已抽」
+    /// 和轮次就全乱了；要撤到更早的位置，连点几次「撤回上一抽」即可，行为完全可预期。
+    /// </remarks>
+    public PickUndoResult? UndoLast()
+    {
+        if (_history.Count == 0)
+        {
+            return null;
+        }
+
+        var last = _history[^1];
+        _history.RemoveAt(_history.Count - 1);
+
+        var entry = Find(last.Name);
+        if (entry is not null)
+        {
+            entry.Count--;
+            if (entry.Count <= 0)
+            {
+                _picks.Remove(entry);
+            }
+        }
+
+        // 翻轮是这一抽引起的，撤了它自然要退回上一轮。Rounds 的 setter 兜底不会小于 1。
+        if (last.StartedNewRound)
+        {
+            Rounds--;
+        }
+
+        _updated = DateTimeOffset.Now;
+        return new PickUndoResult(last.Name, last.StartedNewRound, last.PreviousDrawnThisRound);
     }
 
     /// <summary>一轮抽完了，进入下一轮。</summary>
@@ -256,6 +391,7 @@ public sealed class PickStats
     public void ResetAll()
     {
         _picks.Clear();
+        _history.Clear();
         _round = 1;
         _updated = DateTimeOffset.Now;
     }
@@ -332,6 +468,31 @@ public sealed class PickStats
             }
         }
 
+        // 逐次历史是 3 版才有的，旧文件里就是 null——读不到就当没有可撤回的记录。
+        if (snapshot.History is not null)
+        {
+            foreach (var item in snapshot.History)
+            {
+                if (string.IsNullOrWhiteSpace(item.Name))
+                {
+                    continue;
+                }
+
+                stats._history.Add(new HistoryEntry
+                {
+                    Name = item.Name,
+                    At = item.At,
+                    StartedNewRound = item.StartedNewRound,
+                    PreviousDrawnThisRound = item.PreviousDrawnThisRound
+                });
+            }
+
+            if (stats._history.Count > HistoryCapacity)
+            {
+                stats._history.RemoveRange(0, stats._history.Count - HistoryCapacity);
+            }
+        }
+
         return stats;
     }
 
@@ -378,7 +539,8 @@ public sealed class PickStats
         Schema = CurrentSchema,
         Round = Rounds,
         Updated = _updated ?? DateTimeOffset.Now,
-        Picks = [.. _picks]
+        Picks = [.. _picks],
+        History = [.. _history]
     };
 
     public void Save(string path) => JsonStorage.WriteAtomic(path, BuildSnapshot());

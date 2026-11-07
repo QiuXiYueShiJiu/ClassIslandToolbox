@@ -10,7 +10,7 @@
 
 <img src="docs/screenshots/toolbar-expanded.png" width="760" alt="展开状态">
 
-[![Release](https://img.shields.io/badge/release-v1.0.0-4a90d9)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v1.3.0-4a90d9)](../../releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-6d8398)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-9aadbe)](#兼容性)
 
@@ -38,6 +38,8 @@
 2. **最少次数优先** —— 只在累计被抽次数最少的那一档人里抽
 
 最后一步用系统熵源等概率取一个。另有「新一轮开头回避」，避免上一轮最后一个立刻又成了新一轮第一个。次数历史本地保存，右键可看饼状图。
+
+**抽错了能撤回。** 每一抽都会记下是谁、什么时候、有没有顺带翻轮；统计窗口底栏点「撤回上一抽」就退掉最近一次，次数、本轮进度、「上次抽中」一起退回原样，可以连着撤。自动翻轮的那一抽也能撤 —— 轮次退回上一轮，本轮恢复成抽满时的样子。旧版本留下的统计文件照常能读，只是没有可撤回的逐次记录。
 
 <img src="docs/screenshots/rollcall.png" width="420" alt="幸运抽签结果">
 
@@ -127,13 +129,13 @@ dotnet build src/ClassIsland.Toolbox/ClassIsland.Toolbox.csproj -c Release
 
 ### 测试
 
-`tests/TbTest` 是一个**无头 Avalonia** 的 UI 冒烟测试，132 项断言，会真的把工具条和设置页画一遍并截图到 `/tmp/tbshots`：
+`tests/TbTest` 是一个**无头 Avalonia** 的 UI 冒烟测试，192 项断言，会真的把工具条和设置页画一遍并截图到 `/tmp/tbshots`：
 
 ```bash
 dotnet run --project tests/TbTest/TbTest.csproj -c Release
 ```
 
-它编译的是**真实的插件源码**（不是引用 dll），只有宿主服务和拍照相关的东西用桩替掉了。覆盖了几何约束（展开后云钮是否真的居中、展开前后位置有没有跳、拖动和点击会不会互相误触发）、批注的起笔/擦除/清屏/退出保留、设置页拖动排序、以及「打开文件」三种路径方式的解析与控件显隐。
+它编译的是**真实的插件源码**（不是引用 dll），只有宿主服务和拍照相关的东西用桩替掉了。覆盖了几何约束（展开后云钮是否真的居中、展开前后位置有没有跳、拖动和点击会不会互相误触发）、批注的起笔/擦除/清屏/退出保留、设置页拖动排序、「打开文件」三种路径方式的解析与控件显隐，以及抽签统计的存档迁移和逐次撤回。
 
 **它的价值在于抓那些肉眼容易放过的问题** —— 比如「展开时整条往上跳 166px」当初就是因为测试只断言了 X 坐标，补上 Y 断言之后同类问题立刻现形。
 

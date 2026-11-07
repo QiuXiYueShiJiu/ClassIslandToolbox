@@ -1,4 +1,4 @@
-// 教学助手 v1.2.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.3.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -506,6 +506,9 @@ public class ToolboxWindow : Window
 
     /// <summary>用户点了「幸运抽签」。</summary>
     public event EventHandler? PickRequested;
+
+    /// <summary>用户要撤回上一抽（点错了、抽乱了）。</summary>
+    public event EventHandler? UndoPickRequested;
 
     /// <summary>用户要看幸运抽签统计（饼状图）。</summary>
     public event EventHandler? StatsRequested;
@@ -1759,6 +1762,12 @@ public class ToolboxWindow : Window
                 RefreshItems();
                 SettingsChanged?.Invoke(this, EventArgs.Empty);
             }));
+
+            // 撤不掉的时候（还没抽过、历史已清空）就灰掉，比点了没反应清楚。
+            var undo = Item("撤回上一抽", () => UndoPickRequested?.Invoke(this, EventArgs.Empty));
+            undo.IsEnabled = _stats.CanUndo;
+            items.Add(undo);
+
             items.Add(Item("打开名单文件", OpenRosterFile));
             items.Add(Item("重新载入名单", () =>
             {

@@ -1,4 +1,4 @@
-// 教学助手 v1.2.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.3.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.IO;
 using System.Linq;
@@ -113,6 +113,7 @@ public class ToolboxHostService : IHostedService
 
         _window = new ToolboxWindow(_settings, _roster, _stats);
         _window.PickRequested += (_, _) => LuckyDraw();
+        _window.UndoPickRequested += (_, _) => UndoLastPick();
         _window.StatsRequested += (_, _) => ShowStatsWindow();
         _window.SettingsChanged += (_, _) => SaveSettingsInternal();
 
@@ -169,6 +170,28 @@ public class ToolboxHostService : IHostedService
         PickFromRoster();
     }
 
+    /// <summary>撤回最近一次抽签（点错了、抽乱了）。</summary>
+    /// <remarks>
+    /// 只撤最近一抽，可以连着撤。撤完立刻落盘，屏幕上给一句小字提示。
+    /// </remarks>
+    public void UndoLastPick()
+    {
+        if (_roster is null)
+        {
+            return;
+        }
+
+        var name = _roster.UndoLastPick(_settings.Pick, _stats);
+        if (name is null)
+        {
+            return;
+        }
+
+        SaveAll();
+        _window?.RefreshItems();
+        Reveal($"已撤回：{name}", isHint: true);
+    }
+
     /// <summary>按名单抽一个（均衡抽选）。</summary>
     private void PickFromRoster()
     {
@@ -178,6 +201,7 @@ public class ToolboxHostService : IHostedService
         }
 
         var name = _roster.Pick(_settings.Pick, _stats);
+
         // 抽中的人已经记进 _stats，这里顺手把设置和统计一起落盘。
         SaveAll();
         _window?.RefreshItems();

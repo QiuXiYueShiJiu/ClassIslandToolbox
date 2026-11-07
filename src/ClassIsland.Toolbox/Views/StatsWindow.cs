@@ -1,4 +1,4 @@
-// 教学助手 v1.2.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.3.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -50,22 +50,36 @@ public sealed class StatsWindow : Window
     private readonly PieChartControl _chart = new();
     private readonly StackPanel _legend = new();
     private readonly Button _clearButton;
+    private readonly Button _undoButton;
+
+    /// <summary>「最近抽签」那一条：最新的在最左边，横向排开。</summary>
+    private readonly StackPanel _historyStrip = new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 6
+    };
+
+    /// <summary>撤回之后在条子标题旁边亮一句，过几秒自己消失。</summary>
+    private readonly TextBlock _undoToast = new()
+    {
+        FontSize = 12,
+        Opacity = 0.7,
+        VerticalAlignment = VerticalAlignment.Center,
+        IsVisible = false
+    };
 
     // ---- 计时与状态 ----
     private readonly DispatcherTimer _refreshTimer;
 
     private DispatcherTimer? _confirmTimer;
+    private DispatcherTimer? _toastTimer;
 
     /// <summary>「清除统计」的二次确认状态。</summary>
     private bool _confirmingClear;
 
     /// <summary>上一次刷新时的数据指纹，用来跳过没必要的重画。</summary>
-    private (int TotalPicks, int Rounds, int Drawn, int RosterCount, string? LastPicked)? _lastSignature;
-
-    /// <summary>「清除统计」的二次确认状态。</summary>
-
-    /// <summary>上一次刷新时的数据指纹，用来跳过没必要的重画。</summary>
-
+    private (int TotalPicks, int Rounds, int Drawn, int RosterCount, string? LastPicked, int History)?
+        _lastSignature;
 
     /// <summary>
     /// 打开统计窗口。已经开着就把它提到前面并刷新。
@@ -118,6 +132,10 @@ public sealed class StatsWindow : Window
         _clearButton = new Button { Content = "清除统计" };
         _clearButton.Click += OnClearClicked;
 
+        // 撤错了就再点一次，可以一路撤回去；没得撤时按钮自己会灰掉。
+        _undoButton = new Button { Content = "撤回上一抽" };
+        _undoButton.Click += OnUndoClicked;
+
         Content = ComposeLayout();
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -144,7 +162,7 @@ public sealed class StatsWindow : Window
     #region 界面搭建
 
     /// <summary>
-    /// 整体三行：标题、主区（占比图 + 明细表）、底栏。
+    /// 整体四行：标题、主区（占比图 + 明细表）、最近抽签、底栏。
     /// </summary>
     /// <remarks>
     /// 拆成几个小方法而不是堆一个巨大的对象初始化器：布局改一处就得在几十行嵌套里找位置，
@@ -152,7 +170,7 @@ public sealed class StatsWindow : Window
     /// </remarks>
     private Control ComposeLayout()
     {
-        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto") };
+        var root = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto") };
 
         root.Children.Add(BuildTitleBlock());
 
@@ -160,8 +178,12 @@ public sealed class StatsWindow : Window
         Grid.SetRow(main, 1);
         root.Children.Add(main);
 
+        var history = BuildHistoryStrip();
+        Grid.SetRow(history, 2);
+        root.Children.Add(history);
+
         var footer = BuildFooter();
-        Grid.SetRow(footer, 2);
+        Grid.SetRow(footer, 3);
         root.Children.Add(footer);
 
         return root;
@@ -283,6 +305,7 @@ public sealed class StatsWindow : Window
             Margin = new Thickness(20, 0, 20, 16)
         };
 
+        footer.Children.Add(_undoButton);
         footer.Children.Add(_clearButton);
 
         var refresh = new Button { Content = "刷新" };
@@ -294,6 +317,47 @@ public sealed class StatsWindow : Window
         footer.Children.Add(close);
 
         return footer;
+    }
+
+    /// <summary>
+    /// 底栏上方那一条「最近抽签」：谁、几点几分，最新的排在最左边。
+    /// </summary>
+    /// <remarks>
+    /// 只显示最近二十条，横向排开、放不下就滚动。<b>这一条是给老师核对用的</b>——
+    /// 抽错了先看这里是不是刚才那一抽，再按「撤回上一抽」。
+    /// </remarks>
+    private Control BuildHistoryStrip()
+    {
+        var block = new StackPanel
+        {
+            Margin = new Thickness(20, 0, 20, 10),
+            Spacing = 6
+        };
+
+        var head = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8
+        };
+        head.Children.Add(new TextBlock
+        {
+            Text = "最近抽签",
+            FontSize = 13,
+            FontWeight = FontWeight.SemiBold,
+            Opacity = 0.75,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        head.Children.Add(_undoToast);
+        block.Children.Add(head);
+
+        block.Children.Add(new ScrollViewer
+        {
+            Content = _historyStrip,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled
+        });
+
+        return block;
     }
 
     /// <summary>明细表的列：色块 / 姓名条 / 次数 / 占比 / 本轮。</summary>
@@ -461,8 +525,60 @@ public sealed class StatsWindow : Window
         PaintChart(rows, colors);
         PaintLegend(rows, colors, rows.Count == 0 ? 0 : rows.Max(x => x.Count));
         PaintSummary(rows);
+        PaintHistory();
+
+        // 没得撤的时候灰掉，比点了没反应清楚。
+        _undoButton.IsEnabled = _stats.CanUndo;
 
         _refreshTimer.Start();
+    }
+
+    /// <summary>
+    /// 「最近抽签」那一条：最新的一抽在最左边。
+    /// </summary>
+    private void PaintHistory()
+    {
+        _historyStrip.Children.Clear();
+
+        var history = _stats.History(20);
+        if (history.Count == 0)
+        {
+            _historyStrip.Children.Add(new TextBlock
+            {
+                Text = "还没抽过，抽一次就会出现在这里。",
+                FontSize = 12,
+                Opacity = 0.5,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            return;
+        }
+
+        foreach (var record in history)
+        {
+            _historyStrip.Children.Add(BuildHistoryChip(record));
+        }
+    }
+
+    /// <summary>一条历史小标签：名字 + 几点几分。鼠标停上去能看到完整时间。</summary>
+    private static Control BuildHistoryChip(PickRecord record)
+    {
+        var chip = new Border
+        {
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 4, 10, 4),
+            Background = new SolidColorBrush(Colors.Gray, 0.16),
+            Child = new TextBlock
+            {
+                Text = $"{record.Name}  {record.At:HH:mm}",
+                FontSize = 12
+            }
+        };
+
+        ToolTip.SetTip(chip, record.StartedNewRound
+            ? $"{record.At:yyyy-MM-dd HH:mm:ss}（这一抽开了新一轮）"
+            : $"{record.At:yyyy-MM-dd HH:mm:ss}");
+
+        return chip;
     }
 
     /// <summary>
@@ -476,7 +592,7 @@ public sealed class StatsWindow : Window
     private bool DataChanged()
     {
         var current = (_stats.TotalPicks, _stats.Rounds, _settings.DrawnThisRound.Count,
-            _roster.Names.Count, _settings.LastPicked);
+            _roster.Names.Count, _settings.LastPicked, _stats.HistoryCount);
 
         if (current == _lastSignature && _legend.Children.Count > 0)
         {
@@ -618,6 +734,48 @@ public sealed class StatsWindow : Window
 
     #endregion
 
+    #region 撤回
+
+    /// <summary>「撤回上一抽」被点了：退掉最近一抽，立刻落盘并重画。</summary>
+    /// <remarks>
+    /// 可以连着点，一路撤到想停的地方。<b>没有二次确认</b>：
+    /// 撤回本身是可逆的（再抽一次就补回来了），为此多问一句反而碍事。
+    /// </remarks>
+    private void OnUndoClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var name = _roster.UndoLastPick(_settings, _stats);
+        if (name is null)
+        {
+            return;
+        }
+
+        _persist();
+
+        // 指纹置空，下一次 Refresh 必定重画——撤掉的可能是刚画上去的那一行。
+        _lastSignature = null;
+        Refresh();
+        ShowUndoToast($"已撤回「{name}」");
+    }
+
+    /// <summary>在「最近抽签」标题旁边亮一句话，三秒后自己消失。</summary>
+    private void ShowUndoToast(string text)
+    {
+        _undoToast.Text = text;
+        _undoToast.IsVisible = true;
+
+        _toastTimer?.Stop();
+        _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _toastTimer.Tick += (_, _) =>
+        {
+            _toastTimer?.Stop();
+            _toastTimer = null;
+            _undoToast.IsVisible = false;
+        };
+        _toastTimer.Start();
+    }
+
+    #endregion
+
     #region 清除统计
 
     /// <summary>
@@ -683,6 +841,12 @@ public sealed class StatsWindow : Window
         _stats.ResetAll();
         _settings.DrawnThisRound.Clear();
         _settings.LastPicked = null;
+
+        // 清完就没得撤了，刚才那句「已撤回」也别再挂着。
+        _toastTimer?.Stop();
+        _toastTimer = null;
+        _undoToast.IsVisible = false;
+
         _persist();
 
         // 指纹置空，下一次 Refresh 必定重画，不会被"看起来没变"跳过。
@@ -699,10 +863,11 @@ public sealed class StatsWindow : Window
         base.OnClosed(e);
     }
 
-    /// <summary>把刷新和确认两个计时器都停掉。</summary>
+    /// <summary>把刷新、确认、提示三个计时器都停掉。</summary>
     private void StopTimers()
     {
         _refreshTimer.Stop();
         _confirmTimer?.Stop();
+        _toastTimer?.Stop();
     }
 }

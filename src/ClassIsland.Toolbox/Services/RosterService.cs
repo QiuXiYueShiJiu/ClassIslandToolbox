@@ -1,4 +1,4 @@
-// 教学助手 v1.2.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.3.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -273,10 +273,43 @@ public class RosterService : IDisposable
             return _names[0];
         }
 
-        var pool = BuildPool(settings, stats);
+        var pool = BuildPool(settings, stats, out var startedNewRound, out var previousDrawnThisRound);
         var picked = pool[RandomNumberGenerator.GetInt32(pool.Count)];
-        Remember(settings, stats, picked);
+        Remember(settings, stats, picked, startedNewRound, previousDrawnThisRound);
         return picked;
+    }
+
+    /// <summary>
+    /// 撤回最近一次抽中，把本轮进度、上次抽中、最近抽过都退回去。
+    /// </summary>
+    /// <returns>被撤回的人；没有可撤回的记录时返回 <c>null</c>。</returns>
+    /// <remarks>
+    /// <b>只撤最近一抽，而且可以连着撤。</b>撤中间某一条会让它之后几抽的轮次和本轮进度全部错位，
+    /// 真想退到更早的位置，连点几次就行——每一步都是可预期的。
+    /// </remarks>
+    public string? UndoLastPick(PickSettings settings, PickStats stats)
+    {
+        var undone = stats.UndoLast();
+        if (undone is null)
+        {
+            return null;
+        }
+
+        var drawn = settings.DrawnThisRound ??= [];
+        if (undone.StartedNewRound && undone.PreviousDrawnThisRound is not null)
+        {
+            // 被撤的这一抽当时把上一轮抽满了，恢复成翻轮之前的那份进度。
+            drawn.Clear();
+            drawn.AddRange(undone.PreviousDrawnThisRound);
+        }
+        else
+        {
+            drawn.RemoveAll(x => string.Equals(x, undone.Name, StringComparison.Ordinal));
+        }
+
+        settings.LastPicked = stats.LastPick?.Name;
+        RebuildRecent(settings, stats, undone.Name);
+        return undone.Name;
     }
 
     /// <summary>手动开始新一轮：丢掉本轮进度，累计次数和历史记录都保留。</summary>
@@ -311,8 +344,12 @@ public class RosterService : IDisposable
     /// 不带种子、不按名单顺序、不用姓名或序号做任何 tie-break ——
     /// 次数相同的那一档人里，谁先谁后是纯随机的。
     /// </remarks>
-    private List<string> BuildPool(PickSettings settings, PickStats stats)
+    private List<string> BuildPool(PickSettings settings, PickStats stats,
+        out bool startedNewRound, out List<string>? previousDrawnThisRound)
     {
+        startedNewRound = false;
+        previousDrawnThisRound = null;
+
         var drawn = new HashSet<string>(settings.DrawnThisRound ?? [], StringComparer.Ordinal);
 
         var remaining = new List<string>(_names.Count);
@@ -327,8 +364,11 @@ public class RosterService : IDisposable
         if (remaining.Count == 0)
         {
             // 一轮抽满了：自动开新一轮。累计次数和历史都留着，只清本轮进度。
-            settings.DrawnThisRound.Clear();
+            // 先把旧的进度留一份给撤回用——撤这一抽时要能把上一轮原样还回去。
+            previousDrawnThisRound = settings.DrawnThisRound?.ToList() ?? [];
+            settings.DrawnThisRound?.Clear();
             stats.StartNewRound();
+            startedNewRound = true;
             remaining.AddRange(_names);
         }
 
@@ -415,7 +455,8 @@ public class RosterService : IDisposable
     }
 
     /// <summary>把一次抽中的结果记到设置和历史里。</summary>
-    private static void Remember(PickSettings settings, PickStats stats, string picked)
+    private static void Remember(PickSettings settings, PickStats stats, string picked,
+        bool startedNewRound = false, IReadOnlyList<string>? previousDrawnThisRound = null)
     {
         if (!settings.DrawnThisRound.Contains(picked, StringComparer.Ordinal))
         {
@@ -424,7 +465,41 @@ public class RosterService : IDisposable
 
         settings.LastPicked = picked;
         RememberRecently(settings, picked);
-        stats.Record(picked);
+        stats.Record(picked, startedNewRound, previousDrawnThisRound);
+    }
+
+    /// <summary>
+    /// 按逐次历史重建「最近抽过」。
+    /// </summary>
+    /// <remarks>
+    /// 它本来就是历史的一个视图（去重、最近的在前、最多 <see cref="RecentPicksCapacity"/> 个）。
+    /// 抽签时顺手维护、撤回后整体重建，两条路必须得到同一份结果，
+    /// 否则撤一次之后回避窗口就和实际抽过的顺序对不上了。
+    /// 历史为空（升级前的老数据）时没有依据，退回「把这个名字从列表里去掉」。
+    /// </remarks>
+    private static void RebuildRecent(PickSettings settings, PickStats stats, string undoneName)
+    {
+        var recent = settings.RecentPicks ??= [];
+
+        if (stats.HistoryCount == 0)
+        {
+            recent.RemoveAll(x => string.Equals(x, undoneName, StringComparison.Ordinal));
+            return;
+        }
+
+        recent.Clear();
+        foreach (var record in stats.History())
+        {
+            if (recent.Count >= RecentPicksCapacity)
+            {
+                break;
+            }
+
+            if (!recent.Contains(record.Name, StringComparer.Ordinal))
+            {
+                recent.Add(record.Name);
+            }
+        }
     }
 
     /// <summary>
