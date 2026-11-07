@@ -1477,7 +1477,7 @@ internal static class Program
             origin.Record("张三");
             origin.Record("张三");
             origin.Record("李四");
-            origin.StartNewRound();
+            origin.BeginRound();
             origin.Save(path);
 
             var loaded = PickStats.Load(path);
@@ -1538,7 +1538,7 @@ internal static class Program
     /// </remarks>
     private static void TestPickUndo()
     {
-        Console.WriteLine("== 撤回上一抽 ==");
+        Console.WriteLine("== 记录每一抽、按选择撤回 ==");
 
         var dir = Path.Combine(Path.GetTempPath(), "tbtest-undo-" + Guid.NewGuid().ToString("N"));
         try
@@ -1567,43 +1567,89 @@ internal static class Program
             Check(stats.Rounds == 2 && settings.Pick.DrawnThisRound.Count == 1,
                 $"第 5 抽自动开新一轮（第 {stats.Rounds} 轮，本轮 {settings.Pick.DrawnThisRound.Count} 人）");
 
-            // ---- 撤第 5 抽：轮次回到 1，本轮恢复成上一轮抽满的样子 ----
-            var undone = roster.UndoLastPick(settings.Pick, stats);
-            Check(undone == fifth, $"撤掉的是刚才那一抽（{undone}）");
+            // ---- 每一抽都带详细信息：时间、第几轮、当时名单人数、有没有翻轮 ----
+            var every = stats.History();
+            Check(every.Count == 5, $"五抽都留了记录（{every.Count} 条）");
+            Check(every.All(x => x.At != default && x.RosterSize == 4),
+                "每条都有抽签时间和当时的名单人数");
+            Check(every[0].Name == fifth && every[0].StartedNewRound && every[0].Round == 2,
+                $"翻轮那一抽的详情对得上（{every[0].Name} / 第 {every[0].Round} 轮）");
+            Check(every[0].Id != every[1].Id && !string.IsNullOrEmpty(every[0].Id),
+                "每条都有独立编号，便于指定撤回");
+
+            // ---- 指定撤回「翻轮那一抽」：轮次回到 1，本轮恢复成上一轮抽满的样子 ----
+            var undone = roster.UndoPicks(settings.Pick, stats, new[] { every[0].Id });
+            Check(undone.Count == 1 && undone[0] == fifth, $"撤掉的是指定那一抽（{string.Join("、", undone)}）");
             Check(stats.Rounds == 1, $"自动翻轮的轮次也退回来了（第 {stats.Rounds} 轮）");
             Check(settings.Pick.DrawnThisRound.Count == 4,
                 $"本轮恢复成翻轮前的 4 人（实际 {settings.Pick.DrawnThisRound.Count}）");
             Check(stats.TotalPicks == 4, $"累计次数减一（{stats.TotalPicks}）");
             Check(settings.Pick.LastPicked == round1Names[^1],
                 $"「上次抽中」退回上一抽（{settings.Pick.LastPicked}）");
-            Check(stats.CanUndo, "还能接着撤");
 
-            // ---- 再撤一抽：只从本轮里去掉这一个人 ----
-            var fourth = roster.UndoLastPick(settings.Pick, stats);
-            Check(fourth == round1Names[^1], $"撤的是本轮最后一个（{fourth}）");
-            Check(settings.Pick.DrawnThisRound.Count == 3 && stats.TotalPicks == 3,
-                $"本轮 3 人、累计 3 次（{settings.Pick.DrawnThisRound.Count} / {stats.TotalPicks}）");
-            Check(!settings.Pick.DrawnThisRound.Contains(fourth!, StringComparer.Ordinal),
+            // ---- 撤中间那一抽：不是最后一条也能撤，后面的记录不受影响 ----
+            var middleTarget = stats.History().First(x => x.Name == round1Names[1]);
+            var middleRemoved = roster.UndoPicks(settings.Pick, stats, new[] { middleTarget.Id });
+            Check(middleRemoved.Count == 1 && middleRemoved[0] == round1Names[1],
+                $"撤掉中间那一抽（{middleRemoved[0]}）");
+            Check(stats.TotalPicks == 3 && settings.Pick.DrawnThisRound.Count == 3,
+                $"累计和本轮各减一（{stats.TotalPicks} / {settings.Pick.DrawnThisRound.Count}）");
+            Check(!settings.Pick.DrawnThisRound.Contains(round1Names[1], StringComparer.Ordinal),
                 "被撤的人重新回到「待抽」");
+            Check(settings.Pick.LastPicked == round1Names[^1],
+                $"「上次抽中」仍是最新的那一条（{settings.Pick.LastPicked}）");
 
-            // ---- 一路撤到空：最后一次返回 null，所有进度归零 ----
-            for (var i = 0; i < 3; i++)
+            // ---- 一次撤两条不相邻的 ----
+            var twoIds = stats.History()
+                .Where(x => x.Name == round1Names[0] || x.Name == round1Names[^1])
+                .Select(x => x.Id)
+                .ToList();
+            var twoRemoved = roster.UndoPicks(settings.Pick, stats, twoIds);
+            Check(twoRemoved.Count == 2 && stats.TotalPicks == 1,
+                $"一次撤两条（撤了 {twoRemoved.Count} 条，剩 {stats.TotalPicks} 次）");
+            Check(settings.Pick.DrawnThisRound.Count == 1 && settings.Pick.DrawnThisRound[0] == round1Names[2],
+                $"本轮只剩没被撤的那一个（{string.Join("、", settings.Pick.DrawnThisRound)}）");
+            Check(settings.Pick.LastPicked == round1Names[2],
+                $"「上次抽中」重算成剩下最新的（{settings.Pick.LastPicked}）");
+
+            // ---- 指定一个不存在的编号：什么都不做 ----
+            Check(roster.UndoPicks(settings.Pick, stats, new[] { "does-not-exist" }).Count == 0 &&
+                  stats.TotalPicks == 1,
+                "编号不存在时返回空表，不动数据");
+
+            // ---- 撤回同名的重复抽取：只撤指定那一条，次数按重放结果算 ----
+            var repeatDir = Path.Combine(dir, "重复");
+            Directory.CreateDirectory(repeatDir);
+            File.WriteAllLines(Path.Combine(repeatDir, "名单.txt"), new[] { "甲" });
+            var soloRoster = new RosterService(Path.Combine(repeatDir, "名单.txt"));
+            var soloSettings = new ToolboxSettings();
+            var soloStats = new PickStats();
+            soloRoster.Pick(soloSettings.Pick, soloStats);
+            soloRoster.Pick(soloSettings.Pick, soloStats);
+            soloRoster.Pick(soloSettings.Pick, soloStats);
+            var soloLatest = soloStats.History()[0];
+            soloRoster.UndoPicks(soloSettings.Pick, soloStats, new[] { soloLatest.Id });
+            Check(soloStats.CountOf("甲") == 2 && soloStats.TotalPicks == 2,
+                $"同名重复抽样撤一条只减一次（{soloStats.CountOf("甲")}）");
+
+            // ---- 撤到空：最后一次返回空表，所有进度归零 ----
+            while (stats.CanUndo)
             {
-                roster.UndoLastPick(settings.Pick, stats);
+                roster.UndoPicks(settings.Pick, stats, new[] { stats.LastPick!.Id });
             }
 
             Check(stats.TotalPicks == 0 && settings.Pick.DrawnThisRound.Count == 0,
                 $"撤到空后次数和本轮都归零（{stats.TotalPicks} / {settings.Pick.DrawnThisRound.Count}）");
             Check(stats.Rounds == 1 && settings.Pick.LastPicked is null,
                 $"轮次回到 1、上次抽中清空（第 {stats.Rounds} 轮）");
-            Check(roster.UndoLastPick(settings.Pick, stats) is null, "没得撤时返回 null，不抛异常");
+            Check(!stats.CanUndo, "没得撤时 CanUndo 为假");
 
-            // ---- 存档往返：历史要能读回来 ----
+            // ---- 存档往返：详细信息要能读回来 ----
             var path = Path.Combine(dir, "幸运抽签统计.json");
             var origin = new PickStats();
-            origin.Record("甲");
-            origin.Record("乙", startedNewRound: true, previousDrawnThisRound: new[] { "甲" });
-            origin.Record("丙");
+            origin.Record("甲", rosterSize: 4);
+            origin.Record("乙", startedNewRound: true, rosterSize: 4);
+            origin.Record("丙", rosterSize: 4);
             origin.Save(path);
 
             var loaded = PickStats.Load(path);
@@ -1613,19 +1659,38 @@ internal static class Program
             var recentFirst = loaded.History(3);
             Check(recentFirst[0].Name == "丙" && recentFirst[2].Name == "甲",
                 $"历史按最新的在前返回（{string.Join("、", recentFirst.Select(x => x.Name))}）");
+            Check(recentFirst[0].Round == 2 && recentFirst[1].StartedNewRound && recentFirst[0].RosterSize == 4,
+                $"轮次、翻轮标记、名单人数都存住了（第 {recentFirst[0].Round} 轮）");
 
             var undoFromDisk = loaded.UndoLast();
-            Check(undoFromDisk?.StartedNewRound == false && loaded.CountOf("丙") == 0,
+            Check(undoFromDisk?.Name == "丙" && loaded.CountOf("丙") == 0,
                 "从磁盘读回来的历史也能撤");
 
-            // ---- 旧格式：没有逐次历史，也就没有可撤的 ----
-            var legacy = Path.Combine(dir, "旧格式.json");
-            File.WriteAllText(legacy,
-                "{\"Schema\":2,\"Round\":3,\"Picks\":[{\"Name\":\"王五\",\"Count\":2}]}");
-            var migrated = PickStats.Load(legacy);
-            Check(migrated.CountOf("王五") == 2 && migrated.Rounds == 3,
-                $"旧格式的次数和轮次照常读（王五 {migrated.CountOf("王五")} / 第 {migrated.Rounds} 轮）");
-            Check(!migrated.CanUndo, "旧格式没有历史，撤回按钮应当是灰的");
+            // ---- 3 版存档（只有次数 + 历史，没有起点）：补一次设置状态后仍能撤，次数不丢 ----
+            var v3 = Path.Combine(dir, "v3.json");
+            File.WriteAllText(v3,
+                "{\"Schema\":3,\"Round\":1,\"Picks\":[{\"Name\":\"王五\",\"Count\":2}]," +
+                "\"History\":[{\"Name\":\"王五\",\"At\":\"2026-01-01T08:00:00+08:00\"," +
+                "\"StartedNewRound\":false,\"Id\":\"7\"}]}");
+            var migrated = PickStats.Load(v3);
+            Check(migrated.NeedsSettingsAdoption, "3 版存档会请宿主补一次本轮进度");
+            migrated.AdoptSettingsState(new[] { "王五" }, "王五", new[] { "王五" });
+            migrated.ApplyTo(settings.Pick);
+            Check(migrated.CountOf("王五") == 2 && migrated.TotalPicks == 2,
+                $"3 版存档迁移后次数不丢（{migrated.CountOf("王五")}）");
+            Check(migrated.CanUndo && migrated.HistoryCount == 1, "3 版存档迁移后能撤");
+            migrated.Undo([migrated.LastPick!.Id]);
+            Check(migrated.CountOf("王五") == 1, $"迁移后撤一条只减一次（{migrated.CountOf("王五")}）");
+
+            // ---- 超过上限：最旧的折算进起点，总次数不丢 ----
+            var big = new PickStats();
+            for (var i = 0; i < 810; i++)
+            {
+                big.Record($"第{i}人", rosterSize: 810);
+            }
+
+            Check(big.HistoryCount == 800 && big.TotalPicks == 810,
+                $"超上限时最旧的折算进起点、总次数不丢（历史 {big.HistoryCount} / 累计 {big.TotalPicks}）");
 
             // ---- 清除统计要把历史一起清掉 ----
             var cleared = PickStats.Load(path);

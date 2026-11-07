@@ -1,4 +1,4 @@
-// 教学助手 v1.3.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.4.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.IO;
 using System.Linq;
@@ -81,6 +81,19 @@ public class ToolboxHostService : IHostedService
     {
         _settings = ToolboxSettings.Load(_settingsPath);
         _stats = PickStats.Load(_statsPath);
+
+        // 3 版及以前的统计文件只有次数，没有「本轮已抽」这些；先从设置里补一次起点，
+        // 再把重放结果写回设置——之后两边都由统计文件说了算。
+        if (_stats.NeedsSettingsAdoption)
+        {
+            _stats.AdoptSettingsState(
+                _settings.Pick.DrawnThisRound,
+                _settings.Pick.LastPicked,
+                _settings.Pick.RecentPicks);
+        }
+
+        _stats.ApplyTo(_settings.Pick);
+
         _roster = new RosterService(EffectiveRosterPath);
 
         // 宿主启动 IHostedService 的时候 Avalonia 主窗口不一定已经就绪，

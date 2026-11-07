@@ -1,4 +1,4 @@
-// 教学助手 v1.3.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
+// 教学助手 v1.4.0.0 —— ClassIsland 置顶工具条插件：幸运抽签、屏幕批注、自定义快捷方式
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -51,6 +52,10 @@ public sealed class StatsWindow : Window
     private readonly StackPanel _legend = new();
     private readonly Button _clearButton;
     private readonly Button _undoButton;
+    private readonly Button _undoSelectedButton;
+
+    /// <summary>被选中、等着一起撤回的历史条目 id。</summary>
+    private readonly HashSet<string> _selected = new(StringComparer.Ordinal);
 
     /// <summary>「最近抽签」那一条：最新的在最左边，横向排开。</summary>
     private readonly StackPanel _historyStrip = new()
@@ -135,6 +140,10 @@ public sealed class StatsWindow : Window
         // 撤错了就再点一次，可以一路撤回去；没得撤时按钮自己会灰掉。
         _undoButton = new Button { Content = "撤回上一抽" };
         _undoButton.Click += OnUndoClicked;
+
+        // 想撤哪几条就在下面点哪几个标签，再按这个按钮一次撤掉。
+        _undoSelectedButton = new Button { Content = "撤回选中" };
+        _undoSelectedButton.Click += OnUndoSelectedClicked;
 
         Content = ComposeLayout();
 
@@ -306,6 +315,7 @@ public sealed class StatsWindow : Window
         };
 
         footer.Children.Add(_undoButton);
+        footer.Children.Add(_undoSelectedButton);
         footer.Children.Add(_clearButton);
 
         var refresh = new Button { Content = "刷新" };
@@ -348,6 +358,13 @@ public sealed class StatsWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         });
         head.Children.Add(_undoToast);
+        head.Children.Add(new TextBlock
+        {
+            Text = "点标签选中要撤的那几抽，再按「撤回选中」",
+            FontSize = 12,
+            Opacity = 0.5,
+            VerticalAlignment = VerticalAlignment.Center
+        });
         block.Children.Add(head);
 
         block.Children.Add(new ScrollViewer
@@ -528,7 +545,7 @@ public sealed class StatsWindow : Window
         PaintHistory();
 
         // 没得撤的时候灰掉，比点了没反应清楚。
-        _undoButton.IsEnabled = _stats.CanUndo;
+        UpdateUndoButtons();
 
         _refreshTimer.Start();
     }
@@ -541,6 +558,11 @@ public sealed class StatsWindow : Window
         _historyStrip.Children.Clear();
 
         var history = _stats.History(20);
+
+        // 被撤掉的条目不能继续留在选中集合里，否则「撤回选中」会带上已经不存在的 id。
+        var alive = new HashSet<string>(history.Select(x => x.Id), StringComparer.Ordinal);
+        _selected.RemoveWhere(id => !alive.Contains(id));
+
         if (history.Count == 0)
         {
             _historyStrip.Children.Add(new TextBlock
@@ -559,14 +581,29 @@ public sealed class StatsWindow : Window
         }
     }
 
-    /// <summary>一条历史小标签：名字 + 几点几分。鼠标停上去能看到完整时间。</summary>
-    private static Control BuildHistoryChip(PickRecord record)
+    /// <summary>
+    /// 一条历史小标签：名字 + 几点几分，点一下选中、再点一下取消。
+    /// </summary>
+    /// <remarks>
+    /// 鼠标停上去能看到这一抽的完整信息：第几轮、精确到秒的时间、当时名单有多少人、有没有开新一轮。
+    /// 要退哪几条就点哪几条，不必只能从最后一条往前撤。
+    /// </remarks>
+    private Control BuildHistoryChip(PickRecord record)
     {
+        var selected = _selected.Contains(record.Id);
+
         var chip = new Border
         {
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(10, 4, 10, 4),
-            Background = new SolidColorBrush(Colors.Gray, 0.16),
+            Background = new SolidColorBrush(
+                selected ? Colors.DodgerBlue : Colors.Gray,
+                selected ? 0.35 : 0.16),
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(
+                selected ? Colors.DodgerBlue : Colors.Transparent,
+                selected ? 0.9 : 0),
+            Cursor = new Cursor(StandardCursorType.Hand),
             Child = new TextBlock
             {
                 Text = $"{record.Name}  {record.At:HH:mm}",
@@ -574,11 +611,39 @@ public sealed class StatsWindow : Window
             }
         };
 
-        ToolTip.SetTip(chip, record.StartedNewRound
-            ? $"{record.At:yyyy-MM-dd HH:mm:ss}（这一抽开了新一轮）"
-            : $"{record.At:yyyy-MM-dd HH:mm:ss}");
+        var round = record.StartedNewRound
+            ? $"第 {record.Round} 轮（这一抽开了新一轮）"
+            : $"第 {record.Round} 轮";
+
+        ToolTip.SetTip(chip,
+            $"{record.At:yyyy-MM-dd HH:mm:ss}\n{round}\n当时名单 {record.RosterSize} 人\n点一下选中，再点取消");
+
+        chip.PointerPressed += (_, e) =>
+        {
+            ToggleSelection(record.Id);
+            e.Handled = true;
+        };
 
         return chip;
+    }
+
+    /// <summary>点标签：没选中就选上，选上了就取消。</summary>
+    private void ToggleSelection(string id)
+    {
+        if (!_selected.Remove(id))
+        {
+            _selected.Add(id);
+        }
+
+        PaintHistory();
+        UpdateUndoButtons();
+    }
+
+    /// <summary>两个撤回按钮的可用状态：没记录可撤 / 没选中任何条时灰掉。</summary>
+    private void UpdateUndoButtons()
+    {
+        _undoButton.IsEnabled = _stats.CanUndo;
+        _undoSelectedButton.IsEnabled = _selected.Count > 0;
     }
 
     /// <summary>
@@ -757,6 +822,32 @@ public sealed class StatsWindow : Window
         ShowUndoToast($"已撤回「{name}」");
     }
 
+    /// <summary>「撤回选中」被点了：把点过的几条一起退掉。</summary>
+    /// <remarks>
+    /// 撤哪几条都行，不必从最后一条往前退——删掉之后整段历史重放，
+    /// 次数、轮次、本轮进度都会自己回到正确的位置。
+    /// </remarks>
+    private void OnUndoSelectedClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_selected.Count == 0)
+        {
+            return;
+        }
+
+        var names = _roster.UndoPicks(_settings, _stats, _selected);
+        if (names.Count == 0)
+        {
+            return;
+        }
+
+        _selected.Clear();
+        _persist();
+
+        _lastSignature = null;
+        Refresh();
+        ShowUndoToast($"已撤回 {names.Count} 抽：{string.Join("、", names)}");
+    }
+
     /// <summary>在「最近抽签」标题旁边亮一句话，三秒后自己消失。</summary>
     private void ShowUndoToast(string text)
     {
@@ -841,6 +932,8 @@ public sealed class StatsWindow : Window
         _stats.ResetAll();
         _settings.DrawnThisRound.Clear();
         _settings.LastPicked = null;
+        _settings.RecentPicks?.Clear();
+        _selected.Clear();
 
         // 清完就没得撤了，刚才那句「已撤回」也别再挂着。
         _toastTimer?.Stop();
